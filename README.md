@@ -10,8 +10,16 @@ LuCI web interface for managing captive portal authentication, supporting both *
 - **Guest Accounts** — CRUD management with username/password, MAC binding, bandwidth limits, session timeout
 - **Settings** — Daemon selector, interface, auth method, portal configuration
 - **Connected Clients** — Live session table with disconnect/block actions
+- **Blacklist** — Manage blocked MAC addresses; add manually or block directly from Connected Clients
+- **Blocked Page** — Dedicated splash page informing users when their device has been blacklisted
 - **BinAuth Integration** — Authentication hook reading directly from UCI config (no external dependencies)
 - **Custom Splash Page** — Mobile-first responsive login page with terms & conditions
+
+### Recent improvements
+
+- Bandwidth limits are displayed and entered in **Mbps**.
+- Account passwords are masked by default with a **reveal toggle**.
+- Password fields follow **WCAG 2+** best practices and are password-manager friendly (`autocomplete="new-password"`, proper labels, ARIA attributes).
 
 ## Requirements
 

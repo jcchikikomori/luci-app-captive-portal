@@ -43,6 +43,24 @@ function formatTimeout(seconds) {
 	return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
 }
 
+function formatMbps(bytes) {
+	var b = parseInt(bytes) || 0;
+	if (b === 0) return _('Unlimited');
+	return ((b * 8) / 1000000).toFixed(1) + ' Mbps';
+}
+
+function mbpsToBytes(mbps) {
+	var m = parseFloat(mbps);
+	if (isNaN(m) || m <= 0) return '0';
+	return String(Math.round(m * 125000));
+}
+
+function bytesToMbps(bytes) {
+	var b = parseInt(bytes) || 0;
+	if (b === 0) return '';
+	return ((b * 8) / 1000000).toFixed(1);
+}
+
 function isValidMac(mac) {
 	return mac === '' || /^([0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i.test(mac);
 }
@@ -73,25 +91,30 @@ function showAccountDialog(account) {
 
 	var fields = {
 		username: { label: _('Username'), value: account ? account.username : '', type: 'text', required: true },
-		password: { label: _('Password'), value: account ? account.password : '', type: 'text', required: true },
+		password: { label: _('Password'), value: account ? account.password : '', type: 'password', required: true, id: 'account-password', autocomplete: 'new-password' },
 		mac: { label: _('MAC Address'), value: account ? account.mac : '', type: 'text', placeholder: _('Optional') },
-		upload_limit: { label: _('Upload Limit (bytes)'), value: account ? account.upload_limit : '0', type: 'text' },
-		download_limit: { label: _('Download Limit (bytes)'), value: account ? account.download_limit : '0', type: 'text' },
+		upload_limit: { label: _('Upload Limit (Mbps)'), value: account ? bytesToMbps(account.upload_limit) : '', type: 'text', isMbps: true },
+		download_limit: { label: _('Download Limit (Mbps)'), value: account ? bytesToMbps(account.download_limit) : '', type: 'text', isMbps: true },
 		timeout: { label: _('Timeout (seconds)'), value: account ? account.timeout : '1200', type: 'text' },
 		enabled: { label: _('Enabled'), value: account ? account.enabled : '1', type: 'checkbox' }
 	};
 
 	var macInput = null;
 	var authSelect = null;
+	var passwordInput = null;
 
 	for (var key in fields) {
 		var f = fields[key];
 		var input;
+		var attrs = { 'class': 'cbi-input-text', 'type': f.type, 'data-field': key, 'value': f.value, 'placeholder': f.placeholder || '' };
 
 		if (f.type === 'checkbox') {
 			input = E('input', { 'class': 'cbi-input-checkbox', 'type': 'checkbox', 'data-field': key, 'checked': f.value === '1' ? 'checked' : null });
 		} else {
-			input = E('input', { 'class': 'cbi-input-text', 'type': f.type, 'data-field': key, 'value': f.value, 'placeholder': f.placeholder || '' });
+			if (f.id) attrs.id = f.id;
+			if (f.autocomplete) attrs.autocomplete = f.autocomplete;
+			if (f['aria-label']) attrs['aria-label'] = f['aria-label'];
+			input = E('input', attrs);
 		}
 
 		if (key === 'mac') {
@@ -107,9 +130,35 @@ function showAccountDialog(account) {
 			});
 		}
 
+		if (key === 'password') {
+			passwordInput = input;
+		}
+
+		var labelAttrs = { 'class': 'cbi-value-title' };
+		if (f.id) labelAttrs.for = f.id;
+		var fieldDiv = E('div', { 'class': 'cbi-value-field' }, [input]);
+
+		if (key === 'password') {
+			var toggleBtn = E('button', {
+				'class': 'btn cbi-button',
+				'style': 'margin-left: 0.5em',
+				'type': 'button',
+				'aria-pressed': 'false',
+				'aria-label': _('Show password'),
+				'click': function() {
+					var showing = passwordInput.type === 'text';
+					passwordInput.type = showing ? 'password' : 'text';
+					toggleBtn.setAttribute('aria-pressed', showing ? 'false' : 'true');
+					toggleBtn.setAttribute('aria-label', showing ? _('Show password') : _('Hide password'));
+					toggleBtn.textContent = showing ? _('Show') : _('Hide');
+				}
+			}, _('Show'));
+			fieldDiv.appendChild(toggleBtn);
+		}
+
 		body.appendChild(E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, f.label + (f.required ? ' *' : '')),
-			E('div', { 'class': 'cbi-value-field' }, [input])
+			E('label', labelAttrs, f.label + (f.required ? ' *' : '')),
+			fieldDiv
 		]));
 	}
 
@@ -153,6 +202,8 @@ function showAccountDialog(account) {
 							data[field] = inp.checked ? '1' : '0';
 						} else if (field === 'mac') {
 							data[field] = inp.value.trim().toUpperCase();
+						} else if (field === 'upload_limit' || field === 'download_limit') {
+							data[field] = mbpsToBytes(inp.value);
 						} else {
 							data[field] = inp.value;
 						}
@@ -238,15 +289,33 @@ return view.extend({
 			for (var i = 0; i < accounts.length; i++) {
 				var a = accounts[i];
 				(function(account) {
-					table.appendChild(E('tr', { 'class': 'tr cbi-section-table-row' }, [
-						E('td', { 'class': 'td' }, account.username),
-						E('td', { 'class': 'td' }, account.password),
-						E('td', { 'class': 'td' }, account.mac || '-'),
-						E('td', { 'class': 'td' }, formatBytes(account.upload_limit)),
-						E('td', { 'class': 'td' }, formatBytes(account.download_limit)),
-						E('td', { 'class': 'td' }, formatTimeout(account.timeout)),
-						E('td', { 'class': 'td' }, account.auth_method),
-						E('td', { 'class': 'td' }, account.enabled === '1' ? _('Yes') : _('No')),
+						var passCell = E('td', { 'class': 'td' });
+						var passSpan = E('span', {}, '••••••••');
+						var revealBtn = E('button', {
+							'class': 'btn cbi-button',
+							'style': 'margin-left: 0.5em',
+							'aria-label': _('Reveal password'),
+							'aria-pressed': 'false',
+							'type': 'button',
+							'click': function() {
+								var showing = passSpan.textContent !== '••••••••';
+								passSpan.textContent = showing ? '••••••••' : account.password;
+								revealBtn.setAttribute('aria-pressed', showing ? 'false' : 'true');
+								revealBtn.textContent = showing ? _('Show') : _('Hide');
+							}
+						}, _('Show'));
+						passCell.appendChild(passSpan);
+						passCell.appendChild(revealBtn);
+
+						table.appendChild(E('tr', { 'class': 'tr cbi-section-table-row' }, [
+							E('td', { 'class': 'td' }, account.username),
+							passCell,
+							E('td', { 'class': 'td' }, account.mac || '-'),
+							E('td', { 'class': 'td' }, formatMbps(account.upload_limit)),
+							E('td', { 'class': 'td' }, formatMbps(account.download_limit)),
+							E('td', { 'class': 'td' }, formatTimeout(account.timeout)),
+							E('td', { 'class': 'td' }, account.auth_method),
+							E('td', { 'class': 'td' }, account.enabled === '1' ? _('Yes') : _('No')),
 						E('td', { 'class': 'td' }, [
 							E('button', {
 								'class': 'btn cbi-button cbi-button-edit',

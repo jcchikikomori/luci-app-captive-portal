@@ -263,6 +263,97 @@ const methods = {
 		}
 	},
 
+	get_blocked: {
+		call: function() {
+			uci.load('captive-portal');
+			const blocked = [];
+
+			uci.foreach('captive-portal', 'blocked', function(s) {
+				push(blocked, {
+					section: s['.name'],
+					mac: s.mac || '',
+					enabled: s.enabled || '1',
+				});
+			});
+			uci.unload('captive-portal');
+
+			return { blocked: blocked };
+		}
+	},
+
+	add_blocked: {
+		args: {
+			data: {}
+		},
+		call: function(req) {
+			const data = (req.args && req.args.data) || {};
+			const mac = data.mac || '';
+			if (!mac) {
+				return { success: false, error: 'No MAC provided' };
+			}
+			const norm_mac = normalize_mac(mac);
+
+			uci.load('captive-portal');
+			const section = uci.add('captive-portal', 'blocked');
+			uci.set('captive-portal', section, 'mac', norm_mac);
+			uci.set('captive-portal', section, 'enabled', '1');
+			uci.commit('captive-portal');
+			uci.unload('captive-portal');
+
+			return { success: true, section: section };
+		}
+	},
+
+	update_blocked: {
+		args: {
+			data: {}
+		},
+		call: function(req) {
+			const data = (req.args && req.args.data) || {};
+			if (!data.section) {
+				return { success: false, error: 'No section provided' };
+			}
+
+			const has_mac = exists(data, 'mac');
+			const has_enabled = exists(data, 'enabled');
+			if (!has_mac && !has_enabled) {
+				return { success: false, error: 'No MAC or enabled state provided' };
+			}
+			if (has_mac && !data.mac) {
+				return { success: false, error: 'No MAC provided' };
+			}
+
+			uci.load('captive-portal');
+			const section = data.section;
+
+			if (has_mac) uci.set('captive-portal', section, 'mac', normalize_mac(data.mac));
+			if (has_enabled) uci.set('captive-portal', section, 'enabled', data.enabled);
+
+			uci.commit('captive-portal');
+			uci.unload('captive-portal');
+
+			return { success: true };
+		}
+	},
+
+	delete_blocked: {
+		args: {
+			data: {}
+		},
+		call: function(req) {
+			const data = (req.args && req.args.data) || {};
+			if (!data.section) {
+				return { success: false, error: 'No section provided' };
+			}
+			uci.load('captive-portal');
+			uci.delete('captive-portal', data.section);
+			uci.commit('captive-portal');
+			uci.unload('captive-portal');
+
+			return { success: true };
+		}
+	},
+
 	get_accounts: {
 		call: function() {
 			uci.load('captive-portal');

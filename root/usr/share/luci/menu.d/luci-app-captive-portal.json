@@ -44,5 +44,14 @@
 			"type": "view",
 			"path": "captive-portal/clients"
 		}
+	},
+
+	"admin/services/captive-portal/blacklist": {
+		"title": "Blacklist",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "captive-portal/blacklist"
+		}
 	}
 }

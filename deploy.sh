@@ -15,13 +15,15 @@ ssh "root@${DEVICE}" 'mkdir -p /usr/lib/captive-portal /www/captive-portal /usr/
 
 # Deploy LuCI views
 echo "Deploying LuCI views..."
-scp -r "${SCRIPT_DIR}/htdocs/luci-static/resources/view/captive-portal/" \
-    "root@${DEVICE}:/www/luci-static/resources/view/"
+ssh "root@${DEVICE}" 'rm -rf /www/luci-static/resources/view/captive-portal'
+scp -r "${SCRIPT_DIR}/htdocs/luci-static/resources/view/captive-portal" \
+    "root@${DEVICE}:/www/luci-static/resources/view"
 
 # Deploy splash page assets
 echo "Deploying splash page..."
-scp -r "${SCRIPT_DIR}/htdocs/captive-portal/" \
-    "root@${DEVICE}:/www/captive-portal/"
+ssh "root@${DEVICE}" 'rm -rf /www/captive-portal'
+scp -r "${SCRIPT_DIR}/htdocs/captive-portal" \
+    "root@${DEVICE}:/www"
 
 # Deploy backend files
 echo "Deploying backend files..."
