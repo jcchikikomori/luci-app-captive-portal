@@ -261,3 +261,4 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 2. This is supposed to be a submodule (standalone module) of the author's fork of LuCI (https://github.com/jcchikikomori/luci), since the dependencies are sitting there.
 3. Testing this software on the actual OpenWRT software with LuCI installed
 4. Software compatibility, particularly on non-x86 platforms (ramips/mt7621, ARMv7, etc.)
+5. **openNDS support** — Currently focused on nodogsplash. openNDS config keys, control binary (`openndsctl`), BinAuth argument order, and splash-page template variables may differ and need a dedicated pass.

@@ -15,117 +15,135 @@ LOG_FILE="$LOG_DIR/binauth.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
 log_msg() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [$METHOD] $*" >> "$LOG_FILE" 2>/dev/null || true
+	echo "$(date '+%Y-%m-%d %H:%M:%S') [$METHOD] $*" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 normalize_mac() {
-    echo "$1" | tr '[:lower:]' '[:upper:]'
+	echo "$1" | tr '[:lower:]' '[:upper:]'
 }
 
 case "$METHOD" in
 auth_client)
-    # Determine argument order based on MAC format
-    if echo "$ARG3" | grep -Eq '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'; then
-        CLIENTMAC="$ARG3"
-        USERNAME="$ARG4"
-        PASSWORD="$ARG5"
-    elif echo "$ARG2" | grep -Eq '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'; then
-        CLIENTMAC="$ARG2"
-        USERNAME="$ARG3"
-        PASSWORD="$ARG4"
-    else
-        CLIENTMAC="$ARG2"
-        USERNAME="$ARG3"
-        PASSWORD="$ARG4"
-    fi
+	# Determine argument order based on MAC format.
+	# nodogsplash: auth_client <client_mac> '<username>' '<password>'
+	if echo "$ARG3" | grep -Eq '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'; then
+		CLIENTMAC="$ARG3"
+		USERNAME="$ARG4"
+		PASSWORD="$ARG5"
+	elif echo "$ARG2" | grep -Eq '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'; then
+		CLIENTMAC="$ARG2"
+		USERNAME="$ARG3"
+		PASSWORD="$ARG4"
+	else
+		CLIENTMAC="$ARG2"
+		USERNAME="$ARG3"
+		PASSWORD="$ARG4"
+	fi
 
-    NORM_MAC=$(normalize_mac "$CLIENTMAC")
-    log_msg "Auth request: MAC=$NORM_MAC user=$USERNAME"
+	NORM_MAC=$(normalize_mac "$CLIENTMAC")
+	log_msg "Auth request: MAC=$NORM_MAC user=$USERNAME"
 
-    # Read all enabled guest accounts from UCI
-    SECTIONS=$(uci show captive-portal 2>/dev/null | grep '=guest$' | cut -d. -f2 | cut -d= -f1)
+	DEFAULT_AUTH_METHOD=$(uci get captive-portal.@service[0].auth_method 2>/dev/null)
+	[ -z "$DEFAULT_AUTH_METHOD" ] && DEFAULT_AUTH_METHOD='both'
 
-    FOUND_MATCH=0
-    MATCHED_MAC=0
+	SECTIONS=$(uci show captive-portal 2>/dev/null | grep '=guest$' | cut -d. -f2 | cut -d= -f1)
 
-    for SECTION in $SECTIONS; do
-        ENABLED=$(uci get captive-portal.$SECTION.enabled 2>/dev/null)
-        [ "$ENABLED" != "1" ] && continue
+	CRED_MATCH=0
+	MAC_MATCH=0
+	ALLOWED=0
 
-        STORED_USER=$(uci get captive-portal.$SECTION.username 2>/dev/null)
-        STORED_PASS=$(uci get captive-portal.$SECTION.password 2>/dev/null)
-        STORED_MAC=$(uci get captive-portal.$SECTION.mac 2>/dev/null)
-        TIMEOUT=$(uci get captive-portal.$SECTION.timeout 2>/dev/null)
-        UPLOAD=$(uci get captive-portal.$SECTION.upload_limit 2>/dev/null)
-        DOWNLOAD=$(uci get captive-portal.$SECTION.download_limit 2>/dev/null)
+	for SECTION in $SECTIONS; do
+		ENABLED=$(uci get captive-portal.$SECTION.enabled 2>/dev/null)
+		[ "$ENABLED" != "1" ] && continue
 
-        STORED_MAC_NORM=$(normalize_mac "$STORED_MAC")
+		STORED_USER=$(uci get captive-portal.$SECTION.username 2>/dev/null)
+		STORED_PASS=$(uci get captive-portal.$SECTION.password 2>/dev/null)
+		STORED_MAC=$(uci get captive-portal.$SECTION.mac 2>/dev/null)
+		TIMEOUT=$(uci get captive-portal.$SECTION.timeout 2>/dev/null)
+		UPLOAD=$(uci get captive-portal.$SECTION.upload_limit 2>/dev/null)
+		DOWNLOAD=$(uci get captive-portal.$SECTION.download_limit 2>/dev/null)
+		AUTH_METHOD=$(uci get captive-portal.$SECTION.auth_method 2>/dev/null)
+		[ -z "$AUTH_METHOD" ] && AUTH_METHOD="$DEFAULT_AUTH_METHOD"
 
-        if [ "$USERNAME" = "$STORED_USER" ] && [ "$PASSWORD" = "$STORED_PASS" ]; then
-            log_msg "Credentials matched for user '$USERNAME'"
+		STORED_MAC_NORM=$(normalize_mac "$STORED_MAC")
 
-            # Check MAC binding
-            if [ -z "$STORED_MAC" ]; then
-                # No MAC binding - allow
-                log_msg "No MAC binding, allowing MAC=$NORM_MAC"
-                echo "$TIMEOUT $UPLOAD $DOWNLOAD"
-                exit 0
-            elif [ "$NORM_MAC" = "$STORED_MAC_NORM" ]; then
-                # MAC matches - allow
-                log_msg "MAC matched, allowing MAC=$NORM_MAC"
-                echo "$TIMEOUT $UPLOAD $DOWNLOAD"
-                exit 0
-            else
-                # MAC mismatch
-                FOUND_MATCH=1
-                MATCHED_MAC=0
-                log_msg "MAC mismatch: client=$NORM_MAC account=$STORED_MAC_NORM"
-            fi
-        fi
-    done
+		[ -z "$TIMEOUT" ] && TIMEOUT='1200'
+		[ -z "$UPLOAD" ] && UPLOAD='0'
+		[ -z "$DOWNLOAD" ] && DOWNLOAD='0'
 
-    if [ $FOUND_MATCH -eq 1 ] && [ $MATCHED_MAC -eq 0 ]; then
-        log_msg "Auth denied for '$USERNAME': MAC mismatch"
-        echo "Access denied: MAC address does not match account"
-        exit 1
-    fi
+		case "$AUTH_METHOD" in
+		password)
+			if [ "$USERNAME" = "$STORED_USER" ] && [ "$PASSWORD" = "$STORED_PASS" ]; then
+				log_msg "Password auth matched for user '$USERNAME'"
+				echo "$TIMEOUT $UPLOAD $DOWNLOAD"
+				exit 0
+			fi
+			;;
+		mac)
+			if [ -n "$STORED_MAC" ] && [ "$NORM_MAC" = "$STORED_MAC_NORM" ]; then
+				log_msg "MAC auth matched for MAC=$NORM_MAC"
+				echo "$TIMEOUT $UPLOAD $DOWNLOAD"
+				exit 0
+			fi
+			;;
+		both)
+			if [ "$USERNAME" = "$STORED_USER" ] && [ "$PASSWORD" = "$STORED_PASS" ]; then
+				CRED_MATCH=1
+				if [ -z "$STORED_MAC" ] || [ "$NORM_MAC" = "$STORED_MAC_NORM" ]; then
+					log_msg "User/Password + MAC matched for user '$USERNAME'"
+					echo "$TIMEOUT $UPLOAD $DOWNLOAD"
+					exit 0
+				else
+					log_msg "MAC mismatch for user '$USERNAME': client=$NORM_MAC account=$STORED_MAC_NORM"
+					MAC_MATCH=0
+				fi
+			fi
+			;;
+		esac
+	done
 
-    log_msg "Auth denied for '$USERNAME': invalid credentials"
-    echo "Authentication failed"
-    exit 1
-    ;;
+	if [ "$DEFAULT_AUTH_METHOD" = "both" ] || [ "$DEFAULT_AUTH_METHOD" = "password" ]; then
+		if [ $CRED_MATCH -eq 1 ]; then
+			log_msg "Auth denied for '$USERNAME': MAC does not match account"
+			exit 1
+		fi
+	fi
+
+	log_msg "Auth denied for '$USERNAME': no matching account"
+	exit 1
+	;;
 
 client_auth)
-    log_msg "Client authenticated: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
-    ;;
+	log_msg "Client authenticated: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
+	;;
 
 client_deauth)
-    log_msg "Client deauthenticated: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
-    ;;
+	log_msg "Client deauthenticated: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
+	;;
 
 idle_deauth)
-    log_msg "Client idle timeout: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
-    ;;
+	log_msg "Client idle timeout: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
+	;;
 
 timeout_deauth)
-    log_msg "Client session timeout: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
-    ;;
+	log_msg "Client session timeout: MAC=$ARG2 bytes_in=$ARG3 bytes_out=$ARG4"
+	;;
 
 ndsctl_auth)
-    log_msg "Client authenticated via ndsctl: MAC=$ARG2"
-    ;;
+	log_msg "Client authenticated via ndsctl: MAC=$ARG2"
+	;;
 
 ndsctl_deauth)
-    log_msg "Client deauthenticated via ndsctl: MAC=$ARG2"
-    ;;
+	log_msg "Client deauthenticated via ndsctl: MAC=$ARG2"
+	;;
 
 shutdown_deauth)
-    log_msg "Client deauthenticated due to shutdown: MAC=$ARG2"
-    ;;
+	log_msg "Client deauthenticated due to shutdown: MAC=$ARG2"
+	;;
 
 *)
-    log_msg "Unknown method: $METHOD"
-    ;;
+	log_msg "Unknown method: $METHOD"
+	;;
 esac
 
 exit 0

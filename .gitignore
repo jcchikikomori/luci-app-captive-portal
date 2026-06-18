@@ -1,3 +1,4 @@
 .opencode/
+.playwright-mcp/
 .tmp/
 dist/

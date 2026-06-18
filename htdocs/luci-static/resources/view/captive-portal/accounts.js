@@ -10,17 +10,20 @@ var callGetAccounts = rpc.declare({
 
 var callAddAccount = rpc.declare({
 	object: 'luci.captive-portal',
-	method: 'add_account'
+	method: 'add_account',
+	params: ['data']
 });
 
 var callUpdateAccount = rpc.declare({
 	object: 'luci.captive-portal',
-	method: 'update_account'
+	method: 'update_account',
+	params: ['data']
 });
 
 var callDeleteAccount = rpc.declare({
 	object: 'luci.captive-portal',
-	method: 'delete_account'
+	method: 'delete_account',
+	params: ['data']
 });
 
 function formatBytes(bytes) {
@@ -101,21 +104,34 @@ function showAccountDialog(account) {
 						var field = inp.getAttribute('data-field');
 						if (inp.type === 'checkbox') {
 							data[field] = inp.checked ? '1' : '0';
+					} else if (field === 'mac') {
+						data[field] = inp.value.trim().toUpperCase();
+					} else {
+						data[field] = inp.value;
+					}
+					}
+
+					function handleResult(result, action) {
+						if (result && result.success) {
+							ui.hideModal();
+							location.reload();
 						} else {
-							data[field] = inp.value;
+							ui.addNotification(null, E('p', {}, _('Failed to ') + action + ': ' + (result && result.error ? result.error : _('Unknown error'))));
 						}
 					}
 
 					if (isEdit) {
 						data.section = account.section;
-						callUpdateAccount(data).then(function() {
-							ui.hideModal();
-							location.reload();
+						callUpdateAccount(data).then(function(result) {
+							handleResult(result, _('save account'));
+						}).catch(function(err) {
+							ui.addNotification(null, E('p', {}, _('Failed to save account: ') + (err ? String(err) : _('Unknown error'))));
 						});
 					} else {
-						callAddAccount(data).then(function() {
-							ui.hideModal();
-							location.reload();
+						callAddAccount(data).then(function(result) {
+							handleResult(result, _('create account'));
+						}).catch(function(err) {
+							ui.addNotification(null, E('p', {}, _('Failed to create account: ') + (err ? String(err) : _('Unknown error'))));
 						});
 					}
 				}
@@ -180,10 +196,16 @@ return view.extend({
 											E('button', {
 												'class': 'btn cbi-button-negative',
 												'click': function() {
-													callDeleteAccount({ section: account.section }).then(function() {
+												callDeleteAccount({ section: account.section }).then(function(result) {
+													if (result && result.success) {
 														ui.hideModal();
 														location.reload();
-													});
+													} else {
+														ui.addNotification(null, E('p', {}, _('Failed to delete account: ') + (result && result.error ? result.error : _('Unknown error'))));
+													}
+												}).catch(function(err) {
+													ui.addNotification(null, E('p', {}, _('Failed to delete account: ') + (err ? String(err) : _('Unknown error'))));
+												});
 												}
 											}, _('Delete'))
 										])

@@ -10,7 +10,8 @@ var callGetClients = rpc.declare({
 
 var callDisconnectClient = rpc.declare({
 	object: 'luci.captive-portal',
-	method: 'disconnect_client'
+	method: 'disconnect_client',
+	params: ['data']
 });
 
 function formatBytes(bytes) {
@@ -74,10 +75,16 @@ return view.extend({
 											E('button', {
 												'class': 'btn cbi-button-negative',
 												'click': function() {
-													callDisconnectClient({ mac: client.mac, ip: client.ip }).then(function() {
-														ui.hideModal();
-														location.reload();
-													});
+											callDisconnectClient({ mac: client.mac, ip: client.ip }).then(function(result) {
+												if (result && result.success) {
+													ui.hideModal();
+													location.reload();
+												} else {
+													ui.addNotification(null, E('p', {}, _('Failed to disconnect client: ') + (result && result.error ? result.error : _('Unknown error'))));
+												}
+											}).catch(function(err) {
+												ui.addNotification(null, E('p', {}, _('Failed to disconnect client: ') + (err ? String(err) : _('Unknown error'))));
+											});
 												}
 											}, _('Disconnect'))
 										])
