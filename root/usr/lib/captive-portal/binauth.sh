@@ -19,7 +19,7 @@ log_msg() {
 }
 
 normalize_mac() {
-	echo "$1" | tr '[:lower:]' '[:upper:]'
+	echo "$1" | tr 'a-z' 'A-Z'
 }
 
 case "$METHOD" in

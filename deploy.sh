@@ -33,6 +33,8 @@ scp "${SCRIPT_DIR}/root/etc/init.d/captive-portal" \
     "root@${DEVICE}:/etc/init.d/"
 scp "${SCRIPT_DIR}/root/usr/lib/captive-portal/binauth.sh" \
     "root@${DEVICE}:/usr/lib/captive-portal/"
+scp "${SCRIPT_DIR}/root/usr/lib/captive-portal/sync-blocked-json.sh" \
+    "root@${DEVICE}:/usr/lib/captive-portal/"
 scp "${SCRIPT_DIR}/root/usr/share/luci/menu.d/luci-app-captive-portal.json" \
     "root@${DEVICE}:/usr/share/luci/menu.d/"
 scp "${SCRIPT_DIR}/root/usr/share/rpcd/acl.d/luci-app-captive-portal.json" \
@@ -44,9 +46,13 @@ scp "${SCRIPT_DIR}/root/usr/share/rpcd/ucode/captive-portal.uc" \
 echo "Running setup..."
 ssh "root@${DEVICE}" << 'EOF'
 chmod +x /usr/lib/captive-portal/binauth.sh
+chmod +x /usr/lib/captive-portal/sync-blocked-json.sh
 chmod +x /etc/uci-defaults/80_captive-portal
 sh /etc/uci-defaults/80_captive-portal
-/etc/init.d/rpcd restart
+/usr/lib/captive-portal/sync-blocked-json.sh
+/etc/init.d/rpcd stop
+sleep 2
+/etc/init.d/rpcd start
 /etc/init.d/uhttpd restart
 EOF
 

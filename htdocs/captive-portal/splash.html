@@ -15,47 +15,54 @@
 			</header>
 
 			<div class="card-body">
-				<div class="info-section" id="device-info" style="display:none;">
-					<h3>Your Device</h3>
-					<ul class="info-list">
-						<li><span class="label">Manufacturer:</span> <span id="manufacturer">Unknown</span></li>
-						<li><span class="label">Device:</span> <span id="device">Unknown</span></li>
-						<li><span class="label">Browser:</span> <span id="browser">Unknown</span></li>
-						<li><span class="label">MAC Address:</span> <span id="mac-display">$clientmac</span></li>
-					</ul>
+				<div id="blocked-message" class="blocked-message" style="display:none;" role="alert" aria-live="assertive">
+					<p>You are <strong>BLOCKED</strong> from connecting this WiFi. You have been warned and you somehow did something <strong>WRONG</strong>!</p>
+					<p class="muted">If you believe this is an error, please contact the network administrator.</p>
 				</div>
 
-				<div class="stats-section">
-					<span class="stat-badge">$nclients active users</span>
+				<div id="login-content" style="display:none;">
+					<div class="info-section" id="device-info" style="display:none;">
+						<h3>Your Device</h3>
+						<ul class="info-list">
+							<li><span class="label">Manufacturer:</span> <span id="manufacturer">Unknown</span></li>
+							<li><span class="label">Device:</span> <span id="device">Unknown</span></li>
+							<li><span class="label">Browser:</span> <span id="browser">Unknown</span></li>
+							<li><span class="label">MAC Address:</span> <span id="mac-display">$clientmac</span></li>
+						</ul>
+					</div>
+
+					<div class="stats-section">
+						<span class="stat-badge">$nclients active users</span>
+					</div>
+
+					<form id="login-form" method="GET" action="$authaction">
+						<input type="hidden" name="tok" value="$tok">
+						<input type="hidden" name="redir" value="$redir">
+						<input type="hidden" name="clientmac" value="$clientmac">
+
+						<div class="form-group">
+							<label for="username">Username</label>
+							<input type="text" id="username" name="username" placeholder="Enter username" required autocomplete="username">
+						</div>
+
+						<div class="form-group">
+							<label for="password">Password</label>
+							<input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password">
+						</div>
+
+						<div class="form-group checkbox-group">
+							<label class="checkbox-label">
+								<input type="checkbox" id="terms-check" required>
+								<span>I agree to the <a href="#" id="show-terms">terms and conditions</a></span>
+							</label>
+						</div>
+
+						<button type="submit" class="btn btn-primary" id="login-btn">Connect</button>
+					</form>
 				</div>
-
-				<form id="login-form" method="GET" action="$authaction">
-					<input type="hidden" name="tok" value="$tok">
-					<input type="hidden" name="redir" value="$redir">
-					<input type="hidden" name="clientmac" value="$clientmac">
-
-					<div class="form-group">
-						<label for="username">Username</label>
-						<input type="text" id="username" name="username" placeholder="Enter username" required autocomplete="username">
-					</div>
-
-					<div class="form-group">
-						<label for="password">Password</label>
-						<input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password">
-					</div>
-
-					<div class="form-group checkbox-group">
-						<label class="checkbox-label">
-							<input type="checkbox" id="terms-check" required>
-							<span>I agree to the <a href="#" id="show-terms">terms and conditions</a></span>
-						</label>
-					</div>
-
-					<button type="submit" class="btn btn-primary" id="login-btn">Connect</button>
-				</form>
 			</div>
 
-			<footer class="card-footer">
+			<footer class="card-footer" id="login-footer" style="display:none;">
 				<button class="btn btn-accent" id="view-terms-btn">View Terms & Conditions</button>
 			</footer>
 		</div>

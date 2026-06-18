@@ -71,4 +71,9 @@ if [ -x /etc/init.d/captive-portal ]; then
 	/etc/init.d/captive-portal start
 fi
 
+# Generate the static blocked list used by the splash page
+if [ -x /usr/lib/captive-portal/sync-blocked-json.sh ]; then
+	/usr/lib/captive-portal/sync-blocked-json.sh
+fi
+
 exit 0

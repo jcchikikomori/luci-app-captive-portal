@@ -61,6 +61,35 @@ function lower_mac(mac) {
 	return replace(m, /[A-Z]/g, function(c) { return chr(ord(c) + 32); });
 }
 
+function sync_blocked_json() {
+	const fp = popen('/usr/lib/captive-portal/sync-blocked-json.sh 2>&1');
+	fp.read('all');
+	fp.close();
+}
+
+function drop_client(mac) {
+	if (!service_running()) {
+		return { success: false, error: 'Service not running' };
+	}
+	const ctl = get_ctl_binary();
+	const target = lower_mac(mac);
+	const fp = popen(ctl + ' deauth ' + target + ' 2>&1');
+	const output = trim(fp.read('all') || '');
+	const rc = fp.close();
+	if (rc == 0) {
+		return { success: true, output: output };
+	}
+	if (index(output, 'not found') >= 0) {
+		const check = popen(ctl + ' json ' + target + ' 2>&1');
+		const checkOutput = trim(check.read('all') || '');
+		check.close();
+		if (checkOutput != '' && index(checkOutput, '"state":"Preauthenticated"') >= 0) {
+			return { success: true, output: 'Client has no active session' };
+		}
+	}
+	return { success: false, error: output };
+}
+
 function parse_clients_json() {
 	const ctl = get_ctl_binary();
 	const fp = popen(ctl + ' json 2>/dev/null');
@@ -204,9 +233,11 @@ const methods = {
 			if (!mac && !ip) {
 				return { success: false, error: 'No MAC or IP provided' };
 			}
+			if (mac) {
+				return drop_client(mac);
+			}
 			const ctl = get_ctl_binary();
-			const target = mac ? lower_mac(mac) : ip;
-			const fp = popen(ctl + ' deauth ' + target + ' 2>&1');
+			const fp = popen(ctl + ' deauth ' + ip + ' 2>&1');
 			const output = trim(fp.read('all') || '');
 			const rc = fp.close();
 			if (rc != 0) {
@@ -228,18 +259,8 @@ const methods = {
 			}
 			const norm_mac = normalize_mac(mac);
 
-			// Deauthenticate first if the daemon is running.
-			let deauth = { success: true, output: '' };
-			if (service_running()) {
-				const ctl = get_ctl_binary();
-				const fp = popen(ctl + ' deauth ' + lower_mac(mac) + ' 2>&1');
-				const output = trim(fp.read('all') || '');
-				const rc = fp.close();
-				deauth = {
-					success: rc == 0,
-					output: output
-				};
-			}
+			// Deauthenticate / drop the client first.
+			const deauth = drop_client(mac);
 
 			uci.load('captive-portal');
 			let section = '';
@@ -258,6 +279,8 @@ const methods = {
 			uci.set('captive-portal', section, 'enabled', '1');
 			uci.commit('captive-portal');
 			uci.unload('captive-portal');
+
+			sync_blocked_json();
 
 			return { success: true, deauth: deauth };
 		}
@@ -293,6 +316,9 @@ const methods = {
 			}
 			const norm_mac = normalize_mac(mac);
 
+			// Drop an active session for this MAC, if any.
+			const deauth = drop_client(mac);
+
 			uci.load('captive-portal');
 			const section = uci.add('captive-portal', 'blocked');
 			uci.set('captive-portal', section, 'mac', norm_mac);
@@ -300,7 +326,9 @@ const methods = {
 			uci.commit('captive-portal');
 			uci.unload('captive-portal');
 
-			return { success: true, section: section };
+			sync_blocked_json();
+
+			return { success: true, section: section, deauth: deauth };
 		}
 	},
 
@@ -329,10 +357,19 @@ const methods = {
 			if (has_mac) uci.set('captive-portal', section, 'mac', normalize_mac(data.mac));
 			if (has_enabled) uci.set('captive-portal', section, 'enabled', data.enabled);
 
+			// Drop any active session when the entry is enabled.
+			let deauth = { success: true, output: '' };
+			if (uci.get('captive-portal', section, 'enabled') !== '0') {
+				const mac = uci.get('captive-portal', section, 'mac');
+				if (mac) deauth = drop_client(mac);
+			}
+
 			uci.commit('captive-portal');
 			uci.unload('captive-portal');
 
-			return { success: true };
+			sync_blocked_json();
+
+			return { success: true, deauth: deauth };
 		}
 	},
 
@@ -349,6 +386,8 @@ const methods = {
 			uci.delete('captive-portal', data.section);
 			uci.commit('captive-portal');
 			uci.unload('captive-portal');
+
+			sync_blocked_json();
 
 			return { success: true };
 		}

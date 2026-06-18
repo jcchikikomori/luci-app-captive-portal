@@ -20,10 +20,14 @@ PKG_BUILD_DEPENDS:=
 
 define Package/luci-app-captive-portal/postinst
 #!/bin/sh
-if [ -z "$${IPKG_INSTROOT}" ]; then
+if [ -z "${IPKG_INSTROOT}" ]; then
 	chmod +x /usr/lib/captive-portal/binauth.sh
+	chmod +x /usr/lib/captive-portal/sync-blocked-json.sh
 	[ -f /etc/uci-defaults/80_captive-portal ] && sh /etc/uci-defaults/80_captive-portal
-	/etc/init.d/rpcd restart
+	[ -x /usr/lib/captive-portal/sync-blocked-json.sh ] && /usr/lib/captive-portal/sync-blocked-json.sh
+	/etc/init.d/rpcd stop
+	sleep 2
+	/etc/init.d/rpcd start
 	/etc/init.d/uhttpd restart
 fi
 exit 0

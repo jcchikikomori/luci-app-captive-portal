@@ -127,8 +127,52 @@
 		}
 	}
 
+	// Show blocked message for blacklisted devices, otherwise reveal the login form
+	function checkBlocked() {
+		var macInput = document.querySelector('input[name="clientmac"]');
+		var mac = macInput ? macInput.value : '';
+		var blockedMessage = document.getElementById('blocked-message');
+		var loginContent = document.getElementById('login-content');
+		var loginFooter = document.getElementById('login-footer');
+
+		function showLogin() {
+			if (blockedMessage) blockedMessage.style.display = 'none';
+			if (loginContent) loginContent.style.display = 'block';
+			if (loginFooter) loginFooter.style.display = 'block';
+		}
+
+		function showBlocked() {
+			if (blockedMessage) blockedMessage.style.display = 'block';
+			if (loginContent) loginContent.style.display = 'none';
+			if (loginFooter) loginFooter.style.display = 'none';
+		}
+
+		if (!mac) {
+			showLogin();
+			return;
+		}
+
+		fetch('blocked.json?_=' + Date.now())
+			.then(function(response) { return response.json(); })
+			.then(function(data) {
+				var list = data.blocked || [];
+				var upperMac = mac.toUpperCase();
+				for (var i = 0; i < list.length; i++) {
+					if (list[i].toUpperCase() === upperMac) {
+						showBlocked();
+						return;
+					}
+				}
+				showLogin();
+			})
+			.catch(function() {
+				showLogin();
+			});
+	}
+
 	// Initialize
 	document.addEventListener('DOMContentLoaded', function() {
+		checkBlocked();
 		populateDeviceInfo();
 		setupTermsModal();
 		setupForm();
