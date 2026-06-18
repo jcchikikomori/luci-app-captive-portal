@@ -1,0 +1,38 @@
+#!/bin/sh /etc/rc.common
+# Captive Portal service wrapper for nodogsplash
+# Syncs settings from /etc/config/captive-portal to nodogsplash on apply.
+
+START=99
+STOP=10
+USE_PROCD=1
+
+sync_nodogsplash() {
+	local iface gatewayname timeout
+
+	iface=$(uci -q get captive-portal.@service[0].interface)
+	gatewayname=$(uci -q get captive-portal.@service[0].gatewayname)
+	timeout=$(uci -q get captive-portal.@service[0].default_timeout)
+
+	uci set nodogsplash.@nodogsplash[0].gatewayname="${gatewayname:-CaptivePortal}"
+	uci set nodogsplash.@nodogsplash[0].gatewayinterface="${iface:-lan}"
+	uci set nodogsplash.@nodogsplash[0].sessiontimeout="${timeout:-1200}"
+	uci set nodogsplash.@nodogsplash[0].binauth='/usr/lib/captive-portal/binauth.sh'
+	uci set nodogsplash.@nodogsplash[0].webroot='/www/captive-portal'
+	uci set nodogsplash.@nodogsplash[0].splashpage='splash.html'
+	uci set nodogsplash.@nodogsplash[0].statuspage='status.html'
+	uci commit nodogsplash
+}
+
+start_service() {
+	sync_nodogsplash
+	/etc/init.d/nodogsplash restart
+}
+
+reload_service() {
+	sync_nodogsplash
+	/etc/init.d/nodogsplash restart
+}
+
+service_triggers() {
+	procd_add_config_trigger "config.change" "captive-portal" /etc/init.d/captive-portal reload
+}

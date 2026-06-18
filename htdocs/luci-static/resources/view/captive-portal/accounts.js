@@ -43,9 +43,33 @@ function formatTimeout(seconds) {
 	return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
 }
 
+function isValidMac(mac) {
+	return mac === '' || /^([0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i.test(mac);
+}
+
+function isValidPassword(password) {
+	if (password.length < 12) return false;
+	if (!/[A-Z]/.test(password)) return false;
+	if (!/[a-z]/.test(password)) return false;
+	if (!/[0-9]/.test(password)) return false;
+	return true;
+}
+
+function formatMacInput(value) {
+	var raw = value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+	var parts = [];
+	for (var i = 0; i < raw.length && i < 12; i += 2) {
+		parts.push(raw.substr(i, 2));
+	}
+	return parts.join(':');
+}
+
 function showAccountDialog(account) {
 	var isEdit = !!account;
 	var title = isEdit ? _('Edit Guest Account') : _('Add Guest Account');
+	var hasMac = account && account.mac && account.mac !== '';
+
+	var body = E('div', { 'class': 'cbi-section' });
 
 	var fields = {
 		username: { label: _('Username'), value: account ? account.username : '', type: 'text', required: true },
@@ -54,30 +78,33 @@ function showAccountDialog(account) {
 		upload_limit: { label: _('Upload Limit (bytes)'), value: account ? account.upload_limit : '0', type: 'text' },
 		download_limit: { label: _('Download Limit (bytes)'), value: account ? account.download_limit : '0', type: 'text' },
 		timeout: { label: _('Timeout (seconds)'), value: account ? account.timeout : '1200', type: 'text' },
-		auth_method: { label: _('Auth Method'), value: account ? account.auth_method : 'password', type: 'select', options: [
-			{ value: 'password', label: _('Password') },
-			{ value: 'mac', label: _('MAC Address') },
-			{ value: 'both', label: _('Both') }
-		]},
 		enabled: { label: _('Enabled'), value: account ? account.enabled : '1', type: 'checkbox' }
 	};
 
-	var body = E('div', { 'class': 'cbi-section' });
+	var macInput = null;
+	var authSelect = null;
 
 	for (var key in fields) {
 		var f = fields[key];
 		var input;
 
-		if (f.type === 'select') {
-			input = E('select', { 'class': 'cbi-input-select', 'data-field': key });
-			for (var i = 0; i < f.options.length; i++) {
-				var opt = f.options[i];
-				input.appendChild(E('option', { 'value': opt.value, 'selected': opt.value === f.value ? 'selected' : null }, opt.label));
-			}
-		} else if (f.type === 'checkbox') {
+		if (f.type === 'checkbox') {
 			input = E('input', { 'class': 'cbi-input-checkbox', 'type': 'checkbox', 'data-field': key, 'checked': f.value === '1' ? 'checked' : null });
 		} else {
 			input = E('input', { 'class': 'cbi-input-text', 'type': f.type, 'data-field': key, 'value': f.value, 'placeholder': f.placeholder || '' });
+		}
+
+		if (key === 'mac') {
+			macInput = input;
+			macInput.addEventListener('input', function() {
+				var formatted = formatMacInput(macInput.value);
+				macInput.value = formatted;
+				var enabled = formatted !== '';
+				if (!enabled) {
+					authSelect.value = 'password';
+				}
+				authSelect.disabled = !enabled;
+			});
 		}
 
 		body.appendChild(E('div', { 'class': 'cbi-value' }, [
@@ -85,6 +112,26 @@ function showAccountDialog(account) {
 			E('div', { 'class': 'cbi-value-field' }, [input])
 		]));
 	}
+
+	authSelect = E('select', { 'class': 'cbi-input-select', 'data-field': 'auth_method', 'disabled': hasMac ? null : 'disabled' });
+	var authOptions = [
+		{ value: 'password', label: _('Password') },
+		{ value: 'mac', label: _('MAC Address') },
+		{ value: 'both', label: _('Both') }
+	];
+	var currentAuth = account ? account.auth_method : 'password';
+	if (!hasMac) {
+		currentAuth = 'password';
+	}
+	for (var i = 0; i < authOptions.length; i++) {
+		var opt = authOptions[i];
+		authSelect.appendChild(E('option', { 'value': opt.value, 'selected': opt.value === currentAuth ? 'selected' : null }, opt.label));
+	}
+
+	body.appendChild(E('div', { 'class': 'cbi-value' }, [
+		E('label', { 'class': 'cbi-value-title' }, _('Auth Method')),
+		E('div', { 'class': 'cbi-value-field' }, [authSelect])
+	]));
 
 	ui.showModal(title, [
 		body,
@@ -104,11 +151,32 @@ function showAccountDialog(account) {
 						var field = inp.getAttribute('data-field');
 						if (inp.type === 'checkbox') {
 							data[field] = inp.checked ? '1' : '0';
-					} else if (field === 'mac') {
-						data[field] = inp.value.trim().toUpperCase();
-					} else {
-						data[field] = inp.value;
+						} else if (field === 'mac') {
+							data[field] = inp.value.trim().toUpperCase();
+						} else {
+							data[field] = inp.value;
+						}
 					}
+
+					if (data.username === '') {
+						ui.addNotification(null, E('p', {}, _('Username is required.')));
+						return;
+					}
+
+					if (!isValidPassword(data.password)) {
+						ui.addNotification(null, E('p', {}, _('Password must be at least 12 characters and include uppercase, lowercase, and a number.')));
+						return;
+					}
+
+					if (!isValidMac(data.mac)) {
+						ui.addNotification(null, E('p', {}, _('MAC address must be empty or a valid address like AA:BB:CC:DD:EE:FF.')));
+						return;
+					}
+
+					if (data.mac === '') {
+						data.auth_method = 'password';
+					} else {
+						data.auth_method = authSelect.value;
 					}
 
 					function handleResult(result, action) {

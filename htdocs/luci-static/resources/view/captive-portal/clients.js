@@ -14,6 +14,12 @@ var callDisconnectClient = rpc.declare({
 	params: ['data']
 });
 
+var callBlockClient = rpc.declare({
+	object: 'luci.captive-portal',
+	method: 'block_client',
+	params: ['data']
+});
+
 function formatBytes(bytes) {
 	var b = parseInt(bytes) || 0;
 	if (b === 0) return '0 B';
@@ -85,12 +91,41 @@ return view.extend({
 											}).catch(function(err) {
 												ui.addNotification(null, E('p', {}, _('Failed to disconnect client: ') + (err ? String(err) : _('Unknown error'))));
 											});
-												}
-											}, _('Disconnect'))
+											}
+										}, _('Disconnect'))
 										])
 									]);
 								}
-							}, _('Disconnect'))
+							}, _('Disconnect')),
+							' ',
+							E('button', {
+								'class': 'btn cbi-button cbi-button-negative',
+								'click': function() {
+									ui.showModal(_('Confirm Block'), [
+										E('p', {}, _('Block device ') + (client.mac || client.ip) + '?'),
+										E('p', {}, _('It will be disconnected and prevented from authenticating in the future.')),
+										E('div', { 'class': 'right' }, [
+											E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')),
+											' ',
+											E('button', {
+												'class': 'btn cbi-button-negative',
+												'click': function() {
+											callBlockClient({ mac: client.mac }).then(function(result) {
+												if (result && result.success) {
+													ui.hideModal();
+													location.reload();
+												} else {
+													ui.addNotification(null, E('p', {}, _('Failed to block device: ') + (result && result.error ? result.error : _('Unknown error'))));
+												}
+											}).catch(function(err) {
+												ui.addNotification(null, E('p', {}, _('Failed to block device: ') + (err ? String(err) : _('Unknown error'))));
+											});
+											}
+										}, _('Block'))
+										])
+									]);
+								}
+							}, _('Block'))
 						])
 					]));
 				})(c);

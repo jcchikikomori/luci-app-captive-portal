@@ -43,6 +43,19 @@ auth_client)
 	NORM_MAC=$(normalize_mac "$CLIENTMAC")
 	log_msg "Auth request: MAC=$NORM_MAC user=$USERNAME"
 
+	# Check blocked MAC list before any account lookup.
+	BLOCKED_SECTIONS=$(uci show captive-portal 2>/dev/null | grep '=blocked$' | cut -d. -f2 | cut -d= -f1)
+	for BLOCKED in $BLOCKED_SECTIONS; do
+		BLOCKED_ENABLED=$(uci get captive-portal.$BLOCKED.enabled 2>/dev/null)
+		[ "$BLOCKED_ENABLED" != "1" ] && continue
+		BLOCKED_MAC=$(uci get captive-portal.$BLOCKED.mac 2>/dev/null)
+		BLOCKED_MAC_NORM=$(normalize_mac "$BLOCKED_MAC")
+		if [ -n "$BLOCKED_MAC_NORM" ] && [ "$NORM_MAC" = "$BLOCKED_MAC_NORM" ]; then
+			log_msg "Auth denied: MAC=$NORM_MAC is blocked"
+			exit 1
+		fi
+	done
+
 	DEFAULT_AUTH_METHOD=$(uci get captive-portal.@service[0].auth_method 2>/dev/null)
 	[ -z "$DEFAULT_AUTH_METHOD" ] && DEFAULT_AUTH_METHOD='both'
 

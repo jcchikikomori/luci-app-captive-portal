@@ -4,139 +4,42 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Connected - $gatewayname</title>
-	<style>
-		* {
-			margin: 0;
-			padding: 0;
-			box-sizing: border-box;
-		}
-
-		body {
-			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-			background: linear-gradient(135deg, #27ae60, #2ecc71);
-			color: white;
-			min-height: 100vh;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			padding: 1rem;
-		}
-
-		.container {
-			text-align: center;
-			max-width: 400px;
-		}
-
-		.icon {
-			width: 80px;
-			height: 80px;
-			background: rgba(255, 255, 255, 0.2);
-			border-radius: 50%;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			margin: 0 auto 1.5rem;
-			font-size: 2.5rem;
-		}
-
-		h1 {
-			font-size: 1.75rem;
-			font-weight: 600;
-			margin-bottom: 0.5rem;
-		}
-
-		.subtitle {
-			font-size: 1rem;
-			opacity: 0.9;
-			margin-bottom: 2rem;
-		}
-
-		.info-card {
-			background: rgba(255, 255, 255, 0.15);
-			border-radius: 12px;
-			padding: 1.5rem;
-			margin-bottom: 1.5rem;
-			text-align: left;
-		}
-
-		.info-card h3 {
-			font-size: 0.8rem;
-			text-transform: uppercase;
-			letter-spacing: 0.05em;
-			opacity: 0.8;
-			margin-bottom: 0.75rem;
-		}
-
-		.info-row {
-			display: flex;
-			justify-content: space-between;
-			padding: 0.5rem 0;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-		}
-
-		.info-row:last-child {
-			border-bottom: none;
-		}
-
-		.info-row .label {
-			opacity: 0.8;
-			font-size: 0.9rem;
-		}
-
-		.info-row .value {
-			font-weight: 500;
-			font-size: 0.9rem;
-		}
-
-		.btn {
-			display: inline-block;
-			padding: 0.75rem 2rem;
-			background: white;
-			color: #27ae60;
-			border-radius: 8px;
-			font-size: 1rem;
-			font-weight: 500;
-			text-decoration: none;
-			transition: transform 0.1s, box-shadow 0.2s;
-		}
-
-		.btn:hover {
-			transform: translateY(-1px);
-			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-		}
-
-		.btn:active {
-			transform: translateY(0);
-		}
-
-		.footer {
-			margin-top: 2rem;
-			font-size: 0.8rem;
-			opacity: 0.7;
-		}
-	</style>
+	<link rel="stylesheet" href="splash.css">
 </head>
 <body>
-	<div class="container">
-		<div class="icon">&#10003;</div>
-		<h1>You're Connected!</h1>
-		<p class="subtitle">Welcome to $gatewayname</p>
-
-		<div class="info-card">
-			<h3>Session Info</h3>
-			<div class="info-row">
-				<span class="label">MAC Address</span>
-				<span class="value">$clientmac</span>
+	<div class="container status-container">
+		<div class="card">
+			<div class="card-header">
+				<h1>You're Connected!</h1>
+				<p class="subtitle">Welcome to $gatewayname</p>
 			</div>
-			<div class="info-row">
-				<span class="label">Active Users</span>
-				<span class="value">$nclients</span>
+
+			<div class="card-body">
+				<div class="status-icon">&#10003;</div>
+
+				<div class="status-card">
+					<h3>Session Info</h3>
+					<div class="status-row">
+						<span class="label">IP Address</span>
+						<span class="value">$clientip</span>
+					</div>
+					<div class="status-row">
+						<span class="label">MAC Address</span>
+						<span class="value">$clientmac</span>
+					</div>
+					<div class="status-row">
+						<span class="label">Active Users</span>
+						<span class="value">$nclients</span>
+					</div>
+				</div>
+
+				<a href="$redir" class="btn btn-primary">Continue to Internet</a>
+			</div>
+
+			<div class="card-footer">
+				<p class="status-footer">You can now browse the internet</p>
 			</div>
 		</div>
-
-		<a href="#" class="btn" onclick="window.close(); return false;">Close</a>
-
-		<p class="footer">You can now browse the internet</p>
 	</div>
 </body>
 </html>

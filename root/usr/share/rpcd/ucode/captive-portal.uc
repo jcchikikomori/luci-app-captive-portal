@@ -35,56 +35,126 @@ function get_uptime() {
 	return etime;
 }
 
-function parse_clients_output() {
+function format_duration(seconds) {
+	let s = int(seconds) || 0;
+	if (s <= 0) return '0s';
+
+	const h = int(s / 3600);
+	const m = int((s % 3600) / 60);
+	const r = s % 60;
+
+	let result = '';
+	if (h > 0) result += h + 'h ';
+	if (m > 0) result += m + 'm ';
+	if (r > 0 || result == '') result += r + 's';
+
+	return trim(result);
+}
+
+function normalize_mac(mac) {
+	const m = mac || '';
+	return replace(m, /[a-z]/g, function(c) { return chr(ord(c) - 32); });
+}
+
+function lower_mac(mac) {
+	const m = mac || '';
+	return replace(m, /[A-Z]/g, function(c) { return chr(ord(c) + 32); });
+}
+
+function parse_clients_json() {
 	const ctl = get_ctl_binary();
-	const fp = popen(ctl + ' status 2>/dev/null');
+	const fp = popen(ctl + ' json 2>/dev/null');
 	const output = fp.read('all') || '';
 	fp.close();
 
+	if (output == '') {
+		return { clients: [], error: 'Unable to read client list' };
+	}
+
+	let data = null;
+	try {
+		data = json(output);
+	} catch (e) {
+		return { clients: [], error: 'Failed to parse client data' };
+	}
+
 	const clients = [];
-	const lines = split(output, '\n');
-	let in_client_section = false;
-	let current_client = {};
+	const client_map = data.clients || {};
 
-	for (let i = 0; i < length(lines); i++) {
-		let line = trim(lines[i]);
-		if (line === '') {
-			if (current_client.mac) {
-				push(clients, current_client);
-			}
-			current_client = {};
-			in_client_section = false;
-			continue;
-		}
+	for (let key in client_map) {
+		const c = client_map[key];
+		if (c == null) continue;
 
-		if (index(line, 'Client MAC:') == 0) {
-			in_client_section = true;
-			current_client.mac = trim(replace(line, 'Client MAC:', ''));
-		} else if (in_client_section) {
-			if (index(line, 'IP:') == 0) {
-				current_client.ip = trim(replace(line, 'IP:', ''));
-			} else if (index(line, 'Name:') == 0) {
-				current_client.username = trim(replace(line, 'Name:', ''));
-			} else if (index(line, 'Uptime:') == 0) {
-				current_client.uptime = trim(replace(line, 'Uptime:', ''));
-			} else if (index(line, 'Downloaded:') == 0) {
-				current_client.downloaded = trim(replace(line, 'Downloaded:', ''));
-			} else if (index(line, 'Uploaded:') == 0) {
-				current_client.uploaded = trim(replace(line, 'Uploaded:', ''));
-			}
-		}
+		push(clients, {
+			mac: c.mac || key,
+			ip: c.ip || '',
+			username: c.username || '',
+			uptime: format_duration(c.duration || 0),
+			downloaded: c.downloaded || 0,
+			uploaded: c.uploaded || 0,
+		});
 	}
 
-	if (current_client.mac) {
-		push(clients, current_client);
+	return { clients: clients };
+}
+
+function parse_clients_output() {
+	const daemon = get_daemon();
+	if (daemon === 'nodogsplash') {
+		return parse_clients_json();
 	}
 
-	return clients;
+	return { clients: [], error: 'Client parsing not implemented for ' + daemon };
 }
 
 function get_client_count() {
-	const clients = parse_clients_output();
-	return length(clients);
+	const result = parse_clients_output();
+	return length(result.clients || []);
+}
+
+function sync_nodogsplash_config() {
+	uci.load('captive-portal');
+	uci.load('nodogsplash');
+
+	const service = {
+		interface: uci.get_first('captive-portal', 'service', 'interface') || 'lan',
+		gatewayname: uci.get_first('captive-portal', 'service', 'gatewayname') || 'CaptivePortal',
+		default_timeout: uci.get_first('captive-portal', 'service', 'default_timeout') || '1200',
+	};
+
+	let section_name = '';
+	uci.foreach('nodogsplash', 'nodogsplash', function(s) {
+		section_name = s['.name'];
+		return false;
+	});
+
+	if (section_name == '') {
+		uci.unload('captive-portal');
+		uci.unload('nodogsplash');
+		return { success: false, error: 'No nodogsplash section found' };
+	}
+
+	uci.set('nodogsplash', section_name, 'gatewayname', service.gatewayname);
+	uci.set('nodogsplash', section_name, 'gatewayinterface', service.interface);
+	uci.set('nodogsplash', section_name, 'sessiontimeout', service.default_timeout);
+	uci.set('nodogsplash', section_name, 'binauth', '/usr/lib/captive-portal/binauth.sh');
+	uci.set('nodogsplash', section_name, 'webroot', '/www/captive-portal');
+	uci.set('nodogsplash', section_name, 'splashpage', 'splash.html');
+	uci.set('nodogsplash', section_name, 'statuspage', 'status.html');
+
+	uci.commit('nodogsplash');
+	uci.unload('captive-portal');
+	uci.unload('nodogsplash');
+
+	return { success: true };
+}
+
+function sync_daemon() {
+	const daemon = get_daemon();
+	if (daemon === 'nodogsplash') {
+		return sync_nodogsplash_config();
+	}
+	return { success: false, error: 'Sync not implemented for ' + daemon };
 }
 
 const methods = {
@@ -119,7 +189,7 @@ const methods = {
 			if (!service_running()) {
 				return { clients: [], error: 'Service not running' };
 			}
-			return { clients: parse_clients_output() };
+			return parse_clients_output();
 		}
 	},
 
@@ -135,11 +205,61 @@ const methods = {
 				return { success: false, error: 'No MAC or IP provided' };
 			}
 			const ctl = get_ctl_binary();
-			const target = mac || ip;
+			const target = mac ? lower_mac(mac) : ip;
 			const fp = popen(ctl + ' deauth ' + target + ' 2>&1');
 			const output = trim(fp.read('all') || '');
-			fp.close();
+			const rc = fp.close();
+			if (rc != 0) {
+				return { success: false, error: output || 'Failed to disconnect client' };
+			}
 			return { success: true, output: output };
+		}
+	},
+
+	block_client: {
+		args: {
+			data: {}
+		},
+		call: function(req) {
+			const data = (req.args && req.args.data) || {};
+			const mac = data.mac || '';
+			if (!mac) {
+				return { success: false, error: 'No MAC provided' };
+			}
+			const norm_mac = normalize_mac(mac);
+
+			// Deauthenticate first if the daemon is running.
+			let deauth = { success: true, output: '' };
+			if (service_running()) {
+				const ctl = get_ctl_binary();
+				const fp = popen(ctl + ' deauth ' + lower_mac(mac) + ' 2>&1');
+				const output = trim(fp.read('all') || '');
+				const rc = fp.close();
+				deauth = {
+					success: rc == 0,
+					output: output
+				};
+			}
+
+			uci.load('captive-portal');
+			let section = '';
+			uci.foreach('captive-portal', 'blocked', function(s) {
+				if (normalize_mac(s.mac || '') === norm_mac) {
+					section = s['.name'];
+					return false;
+				}
+			});
+
+			if (section == '') {
+				section = uci.add('captive-portal', 'blocked');
+			}
+
+			uci.set('captive-portal', section, 'mac', norm_mac);
+			uci.set('captive-portal', section, 'enabled', '1');
+			uci.commit('captive-portal');
+			uci.unload('captive-portal');
+
+			return { success: true, deauth: deauth };
 		}
 	},
 
@@ -237,8 +357,19 @@ const methods = {
 		}
 	},
 
+	sync_daemon_config: {
+		call: function() {
+			return sync_daemon();
+		}
+	},
+
 	restart_service: {
 		call: function() {
+			const sync = sync_daemon();
+			if (!sync.success) {
+				return sync;
+			}
+
 			const daemon = get_daemon();
 			const fp = popen('/etc/init.d/' + daemon + ' restart 2>&1');
 			const output = trim(fp.read('all') || '');

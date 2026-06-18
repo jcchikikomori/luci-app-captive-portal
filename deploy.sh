@@ -27,6 +27,8 @@ scp -r "${SCRIPT_DIR}/htdocs/captive-portal/" \
 echo "Deploying backend files..."
 scp "${SCRIPT_DIR}/root/etc/uci-defaults/80_captive-portal" \
     "root@${DEVICE}:/etc/uci-defaults/"
+scp "${SCRIPT_DIR}/root/etc/init.d/captive-portal" \
+    "root@${DEVICE}:/etc/init.d/"
 scp "${SCRIPT_DIR}/root/usr/lib/captive-portal/binauth.sh" \
     "root@${DEVICE}:/usr/lib/captive-portal/"
 scp "${SCRIPT_DIR}/root/usr/share/luci/menu.d/luci-app-captive-portal.json" \

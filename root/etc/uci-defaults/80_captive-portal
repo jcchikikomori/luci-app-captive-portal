@@ -44,13 +44,31 @@ if [ "$DAEMON" = "nodogsplash" ]; then
 		uci -q add nodogsplash nodogsplash >/dev/null
 	fi
 
-	uci -q batch <<'EOF'
+	iface=$(uci -q get captive-portal.@service[0].interface)
+	gatewayname=$(uci -q get captive-portal.@service[0].gatewayname)
+	timeout=$(uci -q get captive-portal.@service[0].default_timeout)
+
+	uci -q batch <<EOF
+set nodogsplash.@nodogsplash[0].gatewayname='${gatewayname:-CaptivePortal}'
+set nodogsplash.@nodogsplash[0].gatewayinterface='${iface:-lan}'
+set nodogsplash.@nodogsplash[0].sessiontimeout='${timeout:-1200}'
 set nodogsplash.@nodogsplash[0].binauth='/usr/lib/captive-portal/binauth.sh'
 set nodogsplash.@nodogsplash[0].webroot='/www/captive-portal'
 set nodogsplash.@nodogsplash[0].splashpage='splash.html'
 set nodogsplash.@nodogsplash[0].statuspage='status.html'
 commit nodogsplash
 EOF
+fi
+
+# Register with LuCI's apply tracker so Save & Apply restarts the captive-portal service
+uci -q set ucitrack.captive_portal=captive-portal
+uci -q set ucitrack.captive_portal.init='captive-portal'
+uci -q commit ucitrack
+
+# Enable and start the captive-portal service so Save & Apply triggers a daemon reload
+if [ -x /etc/init.d/captive-portal ]; then
+	/etc/init.d/captive-portal enable
+	/etc/init.d/captive-portal start
 fi
 
 exit 0
