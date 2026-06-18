@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
       - develop
       - "feature/**"
       - "bugfix/**"
@@ -13,6 +14,7 @@ on:
 
 env:
   TARGET: ramips/mt7621
+  TARGET_DASH: ramips-mt7621
   VERSION: "24.10.2"
   SDK_IMAGE: openwrt/sdk:ramips-mt7621-24.10.2
   PKG_NAME: luci-app-captive-portal
@@ -31,7 +33,7 @@ jobs:
         id: sdk-cache
         with:
           path: /tmp/openwrt-sdk.tar
-          key: openwrt-sdk-${{ env.TARGET }}-${{ env.VERSION }}-${{ runner.os }}
+          key: openwrt-sdk-${{ env.TARGET_DASH }}-${{ env.VERSION }}-${{ runner.os }}
 
       - name: Pull or load SDK image
         run: |
@@ -56,12 +58,12 @@ jobs:
       - name: Upload IPK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PKG_NAME }}-${{ env.TARGET }}-${{ github.run_id }}
+          name: ${{ env.PKG_NAME }}-${{ env.TARGET_DASH }}-${{ github.run_id }}
           path: dist/*.ipk
           if-no-files-found: error
 
       # - name: Release on tag
-      #   if: startsWith(github.ref, "refs/tags/")
+      #   if: startsWith(github.ref, 'refs/tags/')
       #   uses: softprops/action-gh-release@v2
       #   with:
       #     files: dist/*.ipk
