@@ -26,6 +26,8 @@ Guest accounts stored in UCI config. BinAuth reads directly from UCI (no externa
 ```
 luci-app-captive-portal/
 ├── Makefile
+├── build.sh                               # SDK build script
+├── deploy.sh                              # Manual deploy script
 ├── AGENTS.md
 ├── LICENSE
 ├── README.md
@@ -169,16 +171,64 @@ Fresh HTML5/CSS/JS implementation inspired by nodogsplash-mod design:
 
 | Step | Task | Status |
 |------|------|--------|
-| 1 | Scaffolding (Makefile, LICENSE, README, directory structure) | pending |
-| 2 | UCI defaults + Menu JSON + ACL JSON | pending |
-| 3 | RPC ucode backend (`captive-portal.uc`) | pending |
-| 4 | Settings view (`settings.js`) | pending |
-| 5 | Guest Accounts view (`accounts.js`) | pending |
-| 6 | Status view (`status.js`) | pending |
-| 7 | Clients view (`clients.js`) | pending |
-| 8 | BinAuth script (`binauth.sh`) | pending |
-| 9 | Splash page (HTML/CSS/JS) | pending |
-| 10 | Translation template (`captive-portal.pot`) | pending |
+| 1 | Scaffolding (Makefile, LICENSE, README, directory structure) | completed |
+| 2 | UCI defaults + Menu JSON + ACL JSON | completed |
+| 3 | RPC ucode backend (`captive-portal.uc`) | completed |
+| 4 | Settings view (`settings.js`) | completed |
+| 5 | Guest Accounts view (`accounts.js`) | completed |
+| 6 | Status view (`status.js`) | completed |
+| 7 | Clients view (`clients.js`) | completed |
+| 8 | BinAuth script (`binauth.sh`) | completed |
+| 9 | Splash page (HTML/CSS/JS) | completed |
+| 10 | Translation template (`captive-portal.pot`) | completed |
+
+---
+
+## Build & Deploy
+
+### Target Environment
+
+- **OpenWrt Version:** 24.10.2 (r28739-d9340319c6)
+- **LuCI Version:** openwrt-24.10 branch 26.081.63927~e56e710
+- **Target Platform:** ramips/mt7621
+
+### Option A: SDK Build (produces .ipk)
+
+```bash
+./build.sh
+```
+
+This will:
+1. Download the OpenWrt SDK for ramips/mt7621 if not present
+2. Copy package files into the SDK
+3. Build the ipk package
+4. Output the ipk location for installation
+
+### Option B: Manual Deploy (for development)
+
+```bash
+./deploy.sh [device-ip]
+# Default: ./deploy.sh 192.168.1.1
+```
+
+This copies files directly to the device and restarts services.
+
+### Installation (from ipk)
+
+```bash
+# Copy ipk to router
+scp bin/packages/*/luci/luci-app-captive-portal*.ipk root@192.168.1.1:/tmp/
+
+# Install
+ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
+```
+
+### Post-Installation
+
+1. Log out and back into LuCI to clear cache
+2. Navigate to **Services > Captive Portal**
+3. Configure daemon and interface in **Settings**
+4. Add guest accounts in **Guest Accounts**
 
 ---
 

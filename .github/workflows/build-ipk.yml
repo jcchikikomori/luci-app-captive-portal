@@ -1,0 +1,69 @@
+name: Build OpenWrt IPK
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "bugfix/**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  TARGET: ramips/mt7621
+  VERSION: "24.10.2"
+  SDK_IMAGE: openwrt/sdk:ramips-mt7621-24.10.2
+  PKG_NAME: luci-app-captive-portal
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache SDK Docker image
+        uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: /tmp/openwrt-sdk.tar
+          key: openwrt-sdk-${{ env.TARGET }}-${{ env.VERSION }}-${{ runner.os }}
+
+      - name: Pull or load SDK image
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/openwrt-sdk.tar ]; then
+            echo "Loading SDK image from cache..."
+            docker load -i /tmp/openwrt-sdk.tar
+          else
+            echo "Pulling SDK image from Docker Hub..."
+            docker pull ${{ env.SDK_IMAGE }}
+            docker save ${{ env.SDK_IMAGE }} -o /tmp/openwrt-sdk.tar
+          fi
+
+      - name: Build package
+        run: ./build.sh
+        env:
+          TARGET: ${{ env.TARGET }}
+          VERSION: ${{ env.VERSION }}
+          CONTAINER: ${{ env.SDK_IMAGE }}
+          SKIP_DOCKER_PULL: 1
+
+      - name: Upload IPK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG_NAME }}-${{ env.TARGET }}-${{ github.run_id }}
+          path: dist/*.ipk
+          if-no-files-found: error
+
+      # - name: Release on tag
+      #   if: startsWith(github.ref, "refs/tags/")
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     files: dist/*.ipk
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
