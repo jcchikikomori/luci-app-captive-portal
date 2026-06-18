@@ -43,24 +43,6 @@ function formatTimeout(seconds) {
 	return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
 }
 
-function formatMbps(bytes) {
-	var b = parseInt(bytes) || 0;
-	if (b === 0) return _('Unlimited');
-	return ((b * 8) / 1000000).toFixed(1) + ' Mbps';
-}
-
-function mbpsToBytes(mbps) {
-	var m = parseFloat(mbps);
-	if (isNaN(m) || m <= 0) return '0';
-	return String(Math.round(m * 125000));
-}
-
-function bytesToMbps(bytes) {
-	var b = parseInt(bytes) || 0;
-	if (b === 0) return '';
-	return ((b * 8) / 1000000).toFixed(1);
-}
-
 function isValidMac(mac) {
 	return mac === '' || /^([0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i.test(mac);
 }
@@ -93,8 +75,6 @@ function showAccountDialog(account) {
 		username: { label: _('Username'), value: account ? account.username : '', type: 'text', required: true },
 		password: { label: _('Password'), value: account ? account.password : '', type: 'password', required: true, id: 'account-password', autocomplete: 'new-password' },
 		mac: { label: _('MAC Address'), value: account ? account.mac : '', type: 'text', placeholder: _('Optional') },
-		upload_limit: { label: _('Upload Limit (Mbps)'), value: account ? bytesToMbps(account.upload_limit) : '', type: 'text', isMbps: true },
-		download_limit: { label: _('Download Limit (Mbps)'), value: account ? bytesToMbps(account.download_limit) : '', type: 'text', isMbps: true },
 		timeout: { label: _('Timeout (seconds)'), value: account ? account.timeout : '1200', type: 'text' },
 		enabled: { label: _('Enabled'), value: account ? account.enabled : '1', type: 'checkbox' }
 	};
@@ -202,8 +182,6 @@ function showAccountDialog(account) {
 							data[field] = inp.checked ? '1' : '0';
 						} else if (field === 'mac') {
 							data[field] = inp.value.trim().toUpperCase();
-						} else if (field === 'upload_limit' || field === 'download_limit') {
-							data[field] = mbpsToBytes(inp.value);
 						} else {
 							data[field] = inp.value;
 						}
@@ -272,8 +250,6 @@ return view.extend({
 				E('th', { 'class': 'th' }, _('Username')),
 				E('th', { 'class': 'th' }, _('Password')),
 				E('th', { 'class': 'th' }, _('MAC Address')),
-				E('th', { 'class': 'th' }, _('Upload Limit')),
-				E('th', { 'class': 'th' }, _('Download Limit')),
 				E('th', { 'class': 'th' }, _('Timeout')),
 				E('th', { 'class': 'th' }, _('Auth Method')),
 				E('th', { 'class': 'th' }, _('Enabled')),
@@ -283,7 +259,7 @@ return view.extend({
 
 		if (accounts.length === 0) {
 			table.appendChild(E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td', 'colspan': '9' }, _('No guest accounts configured'))
+				E('td', { 'class': 'td', 'colspan': '7' }, _('No guest accounts configured'))
 			]));
 		} else {
 			for (var i = 0; i < accounts.length; i++) {
@@ -311,8 +287,6 @@ return view.extend({
 							E('td', { 'class': 'td' }, account.username),
 							passCell,
 							E('td', { 'class': 'td' }, account.mac || '-'),
-							E('td', { 'class': 'td' }, formatMbps(account.upload_limit)),
-							E('td', { 'class': 'td' }, formatMbps(account.download_limit)),
 							E('td', { 'class': 'td' }, formatTimeout(account.timeout)),
 							E('td', { 'class': 'td' }, account.auth_method),
 							E('td', { 'class': 'td' }, account.enabled === '1' ? _('Yes') : _('No')),

@@ -35,6 +35,8 @@ scp "${SCRIPT_DIR}/root/usr/lib/captive-portal/binauth.sh" \
     "root@${DEVICE}:/usr/lib/captive-portal/"
 scp "${SCRIPT_DIR}/root/usr/lib/captive-portal/sync-blocked-json.sh" \
     "root@${DEVICE}:/usr/lib/captive-portal/"
+scp "${SCRIPT_DIR}/root/usr/lib/captive-portal/tc-helper.sh" \
+    "root@${DEVICE}:/usr/lib/captive-portal/"
 scp "${SCRIPT_DIR}/root/usr/share/luci/menu.d/luci-app-captive-portal.json" \
     "root@${DEVICE}:/usr/share/luci/menu.d/"
 scp "${SCRIPT_DIR}/root/usr/share/rpcd/acl.d/luci-app-captive-portal.json" \
@@ -47,6 +49,7 @@ echo "Running setup..."
 ssh "root@${DEVICE}" << 'EOF'
 chmod +x /usr/lib/captive-portal/binauth.sh
 chmod +x /usr/lib/captive-portal/sync-blocked-json.sh
+chmod +x /usr/lib/captive-portal/tc-helper.sh
 chmod +x /etc/uci-defaults/80_captive-portal
 sh /etc/uci-defaults/80_captive-portal
 /usr/lib/captive-portal/sync-blocked-json.sh

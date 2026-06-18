@@ -26,11 +26,17 @@ sync_nodogsplash() {
 start_service() {
 	sync_nodogsplash
 	/etc/init.d/nodogsplash restart
+	# Apply global traffic control after nodogsplash starts
+	sleep 2
+	/usr/lib/captive-portal/tc-helper.sh apply 2>/dev/null || true
 }
 
 reload_service() {
 	sync_nodogsplash
 	/etc/init.d/nodogsplash restart
+	# Re-apply traffic control after reload
+	sleep 2
+	/usr/lib/captive-portal/tc-helper.sh apply 2>/dev/null || true
 }
 
 service_triggers() {
