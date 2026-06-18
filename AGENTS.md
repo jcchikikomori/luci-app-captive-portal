@@ -202,3 +202,11 @@ Fresh HTML5/CSS/JS implementation inspired by nodogsplash-mod design:
 3. **No external dependencies** — binauth uses `uci` CLI instead of jq/curl/API
 4. **Fresh splash page** — Inspired by nodogsplash-mod but written from scratch (Apache 2.0 clean)
 5. **BinAuth over FAS** — Use BinAuth for authentication hook (simpler, no external web server needed)
+
+---
+
+## TODOs / Outstanding items
+
+1. Building this software
+2. This is supposed to be a submodule (standalone module) of the author's fork of LuCI (https://github.com/jcchikikomori/luci), since the dependencies are sitting there.
+3. Testing this software on the actual OpenWRT software with LuCI installed
