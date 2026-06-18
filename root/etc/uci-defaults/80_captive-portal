@@ -1,0 +1,28 @@
+#!/bin/sh
+
+touch /etc/config/captive-portal
+
+uci set captive-portal.@service[0]=service
+uci set captive-portal.@service[0].daemon='nodogsplash'
+uci set captive-portal.@service[0].interface='lan'
+uci set captive-portal.@service[0].auth_method='both'
+uci set captive-portal.@service[0].portal_name='Guest WiFi'
+uci set captive-portal.@service[0].max_client_time='0'
+uci set captive-portal.@service[0].gatewayname='CaptivePortal'
+uci set captive-portal.@service[0].default_upload_limit='0'
+uci set captive-portal.@service[0].default_download_limit='0'
+uci set captive-portal.@service[0].default_timeout='1200'
+
+uci add captive-portal guest
+uci set captive-portal.@guest[-1].username='guestuser'
+uci set captive-portal.@guest[-1].password='ph4hhw0rDd'
+uci set captive-portal.@guest[-1].mac=''
+uci set captive-portal.@guest[-1].upload_limit='0'
+uci set captive-portal.@guest[-1].download_limit='0'
+uci set captive-portal.@guest[-1].timeout='1200'
+uci set captive-portal.@guest[-1].auth_method='password'
+uci set captive-portal.@guest[-1].enabled='1'
+
+uci commit captive-portal
+
+return 0

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Welcome to $gatewayname</title>
+	<link rel="stylesheet" href="/splash.css">
+</head>
+<body>
+	<div class="container">
+		<div class="card">
+			<header class="card-header">
+				<h1>$gatewayname</h1>
+				<p class="subtitle">Connect to the internet</p>
+			</header>
+
+			<div class="card-body">
+				<div class="info-section" id="device-info" style="display:none;">
+					<h3>Your Device</h3>
+					<ul class="info-list">
+						<li><span class="label">Manufacturer:</span> <span id="manufacturer">Unknown</span></li>
+						<li><span class="label">Device:</span> <span id="device">Unknown</span></li>
+						<li><span class="label">Browser:</span> <span id="browser">Unknown</span></li>
+						<li><span class="label">MAC Address:</span> <span id="mac-display">$clientmac</span></li>
+					</ul>
+				</div>
+
+				<div class="stats-section">
+					<span class="stat-badge">$nclients active users</span>
+				</div>
+
+				<form id="login-form" method="GET" action="$authaction">
+					<input type="hidden" name="tok" value="$tok">
+					<input type="hidden" name="redir" value="$redir">
+					<input type="hidden" name="clientmac" value="$clientmac">
+
+					<div class="form-group">
+						<label for="username">Username</label>
+						<input type="text" id="username" name="username" placeholder="Enter username" required autocomplete="username">
+					</div>
+
+					<div class="form-group">
+						<label for="password">Password</label>
+						<input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password">
+					</div>
+
+					<div class="form-group checkbox-group">
+						<label class="checkbox-label">
+							<input type="checkbox" id="terms-check" required>
+							<span>I agree to the <a href="#" id="show-terms">terms and conditions</a></span>
+						</label>
+					</div>
+
+					<button type="submit" class="btn btn-primary" id="login-btn">Connect</button>
+				</form>
+			</div>
+
+			<footer class="card-footer">
+				<button class="btn btn-link" id="view-terms-btn">View Terms & Conditions</button>
+			</footer>
+		</div>
+	</div>
+
+	<!-- Terms Modal -->
+	<div class="modal-overlay" id="terms-modal" style="display:none;">
+		<div class="modal">
+			<div class="modal-header">
+				<h2>Terms & Conditions</h2>
+				<button class="modal-close" id="close-terms">&times;</button>
+			</div>
+			<div class="modal-body">
+				<h3>By connecting to this network, you agree to:</h3>
+				<ol>
+					<li>Not share network credentials without explicit permission from the network owner.</li>
+					<li>Accept that unauthorized sharing may result in device blacklisting.</li>
+					<li>Understand that the network owner reserves the right to monitor network activity.</li>
+					<li>Use the network responsibly and not engage in illegal activities.</li>
+					<li>Accept that service availability is not guaranteed.</li>
+				</ol>
+				<p>Attempts to bypass these terms will result in immediate access termination.</p>
+			</div>
+			<div class="modal-footer">
+				<button class="btn btn-primary" id="accept-terms">I Understand</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Loading Modal -->
+	<div class="modal-overlay" id="loading-modal" style="display:none;">
+		<div class="modal modal-small">
+			<div class="modal-body" style="text-align:center;">
+				<div class="spinner"></div>
+				<p>Connecting...</p>
+			</div>
+		</div>
+	</div>
+
+	<script src="/splash.js"></script>
+</body>
+</html>
