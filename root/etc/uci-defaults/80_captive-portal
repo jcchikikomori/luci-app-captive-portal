@@ -2,27 +2,32 @@
 
 touch /etc/config/captive-portal
 
-uci set captive-portal.@service[0]=service
-uci set captive-portal.@service[0].daemon='nodogsplash'
-uci set captive-portal.@service[0].interface='lan'
-uci set captive-portal.@service[0].auth_method='both'
-uci set captive-portal.@service[0].portal_name='Guest WiFi'
-uci set captive-portal.@service[0].max_client_time='0'
-uci set captive-portal.@service[0].gatewayname='CaptivePortal'
-uci set captive-portal.@service[0].default_upload_limit='0'
-uci set captive-portal.@service[0].default_download_limit='0'
-uci set captive-portal.@service[0].default_timeout='1200'
+# Only initialize once
+uci -q get captive-portal.@service[0].daemon >/dev/null 2>&1 && exit 0
 
-uci add captive-portal guest
-uci set captive-portal.@guest[-1].username='guestuser'
-uci set captive-portal.@guest[-1].password='ph4hhw0rDd'
-uci set captive-portal.@guest[-1].mac=''
-uci set captive-portal.@guest[-1].upload_limit='0'
-uci set captive-portal.@guest[-1].download_limit='0'
-uci set captive-portal.@guest[-1].timeout='1200'
-uci set captive-portal.@guest[-1].auth_method='password'
-uci set captive-portal.@guest[-1].enabled='1'
+uci -q batch <<'EOF'
+add captive-portal service
+set captive-portal.@service[-1].daemon='nodogsplash'
+set captive-portal.@service[-1].interface='lan'
+set captive-portal.@service[-1].auth_method='both'
+set captive-portal.@service[-1].portal_name='Guest WiFi'
+set captive-portal.@service[-1].max_client_time='0'
+set captive-portal.@service[-1].gatewayname='CaptivePortal'
+set captive-portal.@service[-1].default_upload_limit='0'
+set captive-portal.@service[-1].default_download_limit='0'
+set captive-portal.@service[-1].default_timeout='1200'
 
-uci commit captive-portal
+add captive-portal guest
+set captive-portal.@guest[-1].username='guestuser'
+set captive-portal.@guest[-1].password='ph4hhw0rDd'
+set captive-portal.@guest[-1].mac=''
+set captive-portal.@guest[-1].upload_limit='0'
+set captive-portal.@guest[-1].download_limit='0'
+set captive-portal.@guest[-1].timeout='1200'
+set captive-portal.@guest[-1].auth_method='password'
+set captive-portal.@guest[-1].enabled='1'
 
-return 0
+commit captive-portal
+EOF
+
+exit 0

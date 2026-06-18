@@ -9,6 +9,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Deploying luci-app-captive-portal to ${DEVICE} ==="
 
+# Ensure remote directories exist
+echo "Creating remote directories..."
+ssh "root@${DEVICE}" 'mkdir -p /usr/lib/captive-portal /www/captive-portal /usr/share/rpcd/ucode'
+
 # Deploy LuCI views
 echo "Deploying LuCI views..."
 scp -r "${SCRIPT_DIR}/htdocs/luci-static/resources/view/captive-portal/" \
@@ -36,6 +40,7 @@ scp "${SCRIPT_DIR}/root/usr/share/rpcd/ucode/captive-portal.uc" \
 echo "Running setup..."
 ssh "root@${DEVICE}" << 'EOF'
 chmod +x /usr/lib/captive-portal/binauth.sh
+chmod +x /etc/uci-defaults/80_captive-portal
 sh /etc/uci-defaults/80_captive-portal
 /etc/init.d/rpcd restart
 /etc/init.d/uhttpd restart

@@ -18,12 +18,6 @@ include ../../luci.mk
 # not needed for this package.
 PKG_BUILD_DEPENDS:=
 
-define Package/luci-app-captive-portal/install
-	$(call Package/luci-app-captive-portal/Default/install,$(1))
-	$(INSTALL_DIR) $(1)/www/captive-portal
-	$(INSTALL_DATA) $(CURDIR)/htdocs/captive-portal/* $(1)/www/captive-portal/
-endef
-
 define Package/luci-app-captive-portal/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
