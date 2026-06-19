@@ -64,6 +64,21 @@ function formatMacInput(value) {
 	return parts.join(':');
 }
 
+function copyToClipboard(text) {
+	if (navigator.clipboard && navigator.clipboard.writeText) {
+		return navigator.clipboard.writeText(text);
+	}
+	var textarea = document.createElement('textarea');
+	textarea.value = text;
+	textarea.style.position = 'fixed';
+	textarea.style.opacity = '0';
+	document.body.appendChild(textarea);
+	textarea.select();
+	document.execCommand('copy');
+	document.body.removeChild(textarea);
+	return Promise.resolve();
+}
+
 function showAccountDialog(account) {
 	var isEdit = !!account;
 	var title = isEdit ? _('Edit Guest Account') : _('Add Guest Account');
@@ -119,6 +134,19 @@ function showAccountDialog(account) {
 		var fieldDiv = E('div', { 'class': 'cbi-value-field' }, [input]);
 
 		if (key === 'password') {
+			var copyBtn = E('button', {
+				'class': 'btn cbi-button',
+				'style': 'margin-left: 0.5em',
+				'type': 'button',
+				'aria-label': _('Copy password'),
+				'click': function() {
+					copyToClipboard(passwordInput.value).then(function() {
+						ui.addNotification(null, E('p', {}, _('Password copied to clipboard')));
+					}).catch(function() {
+						ui.addNotification(null, E('p', {}, _('Failed to copy password')));
+					});
+				}
+			}, _('Copy'));
 			var toggleBtn = E('button', {
 				'class': 'btn cbi-button',
 				'style': 'margin-left: 0.5em',
@@ -133,6 +161,7 @@ function showAccountDialog(account) {
 					toggleBtn.textContent = showing ? _('Show') : _('Hide');
 				}
 			}, _('Show'));
+			fieldDiv.appendChild(copyBtn);
 			fieldDiv.appendChild(toggleBtn);
 		}
 
@@ -267,6 +296,19 @@ return view.extend({
 				(function(account) {
 						var passCell = E('td', { 'class': 'td' });
 						var passSpan = E('span', {}, '••••••••');
+						var copyBtn = E('button', {
+							'class': 'btn cbi-button',
+							'style': 'margin-left: 0.5em',
+							'aria-label': _('Copy password'),
+							'type': 'button',
+							'click': function() {
+								copyToClipboard(account.password).then(function() {
+									ui.addNotification(null, E('p', {}, _('Password copied to clipboard')));
+								}).catch(function() {
+									ui.addNotification(null, E('p', {}, _('Failed to copy password')));
+								});
+							}
+						}, _('Copy'));
 						var revealBtn = E('button', {
 							'class': 'btn cbi-button',
 							'style': 'margin-left: 0.5em',
@@ -281,6 +323,7 @@ return view.extend({
 							}
 						}, _('Show'));
 						passCell.appendChild(passSpan);
+						passCell.appendChild(copyBtn);
 						passCell.appendChild(revealBtn);
 
 						table.appendChild(E('tr', { 'class': 'tr cbi-section-table-row' }, [
