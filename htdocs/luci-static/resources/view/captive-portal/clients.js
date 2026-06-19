@@ -133,6 +133,7 @@ return view.extend({
 		}
 
 		return E('div', { 'class': 'cbi-map' }, [
+			E('style', {}, '.cbi-page-actions { display: none !important; }'),
 			E('h2', {}, _('Connected Clients')),
 			E('div', { 'class': 'cbi-section-descr' }, _('View and manage active client sessions')),
 			E('div', { 'class': 'cbi-section' }, [

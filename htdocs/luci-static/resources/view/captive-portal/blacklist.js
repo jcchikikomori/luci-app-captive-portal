@@ -194,6 +194,7 @@ return view.extend({
 		}
 
 		return E('div', { 'class': 'cbi-map' }, [
+			E('style', {}, '.cbi-page-actions { display: none !important; }'),
 			E('h2', {}, _('Blacklist')),
 			E('div', { 'class': 'cbi-section-descr' }, _('Manage blocked MAC addresses that are prevented from authenticating')),
 			E('div', { 'class': 'cbi-section' }, [

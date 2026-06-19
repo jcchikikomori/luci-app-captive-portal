@@ -330,6 +330,7 @@ return view.extend({
 		}
 
 		return E('div', { 'class': 'cbi-map' }, [
+			E('style', {}, '.cbi-page-actions { display: none !important; }'),
 			E('h2', {}, _('Guest Accounts')),
 			E('div', { 'class': 'cbi-section-descr' }, _('Manage guest accounts for captive portal authentication')),
 			E('div', { 'class': 'cbi-section' }, [

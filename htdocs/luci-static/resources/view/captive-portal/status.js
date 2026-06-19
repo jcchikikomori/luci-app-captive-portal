@@ -23,6 +23,7 @@ return view.extend({
 		var daemon = data.daemon || 'nodogsplash';
 		var uptime = data.uptime || '-';
 		var clientCount = data.client_count || 0;
+		var daemonStatus = data.daemon_status || '';
 		var config = data.config || {};
 
 		var statusText = running ? _('Running') : _('Stopped');
@@ -31,6 +32,7 @@ return view.extend({
 		var daemonDisplay = daemon === 'opennds' ? 'OpenNDS' : 'Nodogsplash';
 
 		return E('div', { 'class': 'cbi-map' }, [
+			E('style', {}, '.cbi-page-actions { display: none !important; }'),
 			E('h2', {}, _('Captive Portal Status')),
 
 			E('div', { 'class': 'cbi-section' }, [
@@ -51,10 +53,6 @@ return view.extend({
 						E('td', { 'class': 'td left' }, config.interface || '-')
 					]),
 					E('tr', { 'class': 'tr' }, [
-						E('td', { 'class': 'td left' }, _('Portal Name')),
-						E('td', { 'class': 'td left' }, config.portal_name || '-')
-					]),
-					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td left' }, _('Gateway Name')),
 						E('td', { 'class': 'td left' }, config.gatewayname || '-')
 					]),
@@ -67,6 +65,14 @@ return view.extend({
 						E('td', { 'class': 'td left' }, '' + clientCount)
 					])
 				])
+			]),
+
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Daemon Status')),
+				E('div', { 'class': 'cbi-section-descr' }, _('Raw status output from the active daemon')),
+				running
+					? E('div', { 'class': 'cbi-value-field', 'style': 'font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 0.5em;' }, daemonStatus || _('No status output available'))
+					: E('p', { 'class': 'cbi-section-descr' }, _('Service is not running'))
 			]),
 
 			E('div', { 'class': 'cbi-section' }, [

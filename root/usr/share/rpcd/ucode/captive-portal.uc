@@ -136,6 +136,14 @@ function parse_clients_output() {
 	return { clients: [], error: 'Client parsing not implemented for ' + daemon };
 }
 
+function get_daemon_status_text() {
+	const ctl = get_ctl_binary();
+	const fp = popen(ctl + ' status 2>&1');
+	const output = fp.read('all') || '';
+	fp.close();
+	return output;
+}
+
 function get_client_count() {
 	const result = parse_clients_output();
 	return length(result.clients || []);
@@ -193,12 +201,12 @@ const methods = {
 			const running = service_running();
 			const uptime = running ? get_uptime() : '';
 			const client_count = running ? get_client_count() : 0;
+			const daemon_status = running ? get_daemon_status_text() : '';
 
 			uci.load('captive-portal');
 			const config = {
 				daemon: uci.get_first('captive-portal', 'service', 'daemon') || 'nodogsplash',
 				interface: uci.get_first('captive-portal', 'service', 'interface') || 'lan',
-				portal_name: uci.get_first('captive-portal', 'service', 'portal_name') || 'Guest WiFi',
 				gatewayname: uci.get_first('captive-portal', 'service', 'gatewayname') || 'CaptivePortal',
 			};
 			uci.unload('captive-portal');
@@ -208,8 +216,19 @@ const methods = {
 				daemon: daemon,
 				uptime: uptime,
 				client_count: client_count,
+				daemon_status: daemon_status,
 				config: config,
 			};
+		}
+	},
+
+	get_daemon_status: {
+		call: function() {
+			if (!service_running()) {
+				return { success: false, error: 'Service not running' };
+			}
+			const output = get_daemon_status_text();
+			return { success: true, output: output };
 		}
 	},
 
