@@ -15,7 +15,7 @@ Guest accounts stored in UCI config. BinAuth reads directly from UCI (no externa
 ## License Constraints
 
 - **All code must be Apache 2.0 compatible.**
-- **DO NOT** copy or port code from nodogsplash-mod (GPL-2.0). Write fresh implementations inspired by the design.
+- **DO NOT** copy or port code from nodogsplash (GPL-2.0) and openNDS (GPL-2.0). Write fresh implementations inspired by the design.
 - **DO NOT** include GPL-2.0 licensed code in this project.
 - The binauth script and splash page must be written from scratch.
 
@@ -248,10 +248,16 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 ## Key Design Decisions
 
 1. **UCI-native storage** — Guest accounts in `/etc/config/captive-portal`, survives reboots, CLI-accessible
-2. **Dual daemon support** — RPC backend detects configured daemon, calls appropriate control binary
+2. **Daemon support for either nodogsplash & OpenNDS** — RPC backend detects configured daemon, calls appropriate control binary
 3. **No external dependencies** — binauth uses `uci` CLI instead of jq/curl/API
 4. **Fresh splash page** — Inspired by nodogsplash-mod but written from scratch (Apache 2.0 clean)
 5. **BinAuth over FAS** — Use BinAuth for authentication hook (simpler, no external web server needed)
+
+---
+
+## Compatibility note
+
+- Initial implementation will be focused on nodogsplash, but later on, we will migrate to openNDS.
 
 ---
 
@@ -262,3 +268,10 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 3. Testing this software on the actual OpenWRT software with LuCI installed
 4. Software compatibility, particularly on non-x86 platforms (ramips/mt7621, ARMv7, etc.)
 5. **openNDS support** — Currently focused on nodogsplash. openNDS config keys, control binary (`openndsctl`), BinAuth argument order, and splash-page template variables may differ and need a dedicated pass.
+
+---
+
+## References
+
+- https://nodogsplash.readthedocs.io/en/latest/
+- https://opennds.readthedocs.io/en/stable/index.html
