@@ -3,7 +3,7 @@
 'use strict';
 
 import { cursor } from 'uci';
-import { popen } from 'fs';
+import { popen, lsdir } from 'fs';
 
 const uci = cursor();
 
@@ -194,6 +194,130 @@ function sync_daemon() {
 	return { success: false, error: 'Sync not implemented for ' + daemon };
 }
 
+function bytes_to_mbit(bytes) {
+	const b = int(bytes) || 0;
+	if (b <= 0) return '0';
+	const mbit = (b * 8) / 1000000;
+	return '' + int(mbit);
+}
+
+function get_bridge_members(iface) {
+	const fp = popen('cat /sys/class/net/' + iface + '/brif/* 2>/dev/null || ls /sys/class/net/' + iface + '/brif/ 2>/dev/null');
+	const output = trim(fp.read('all') || '');
+	fp.close();
+	if (output == '') return [];
+	const members = split(output, '\n');
+	const result = [];
+	for (let i = 0; i < length(members); i++) {
+		const m = trim(members[i]);
+		if (m != '') push(result, m);
+	}
+	return result;
+}
+
+function get_network_devices() {
+	const devices = [];
+	const dir = lsdir('/sys/class/net');
+	for (let i = 0; i < length(dir); i++) {
+		const name = dir[i];
+		if (name == 'lo') continue;
+		push(devices, name);
+	}
+	sort(devices);
+	return devices;
+}
+
+function get_qos_interface_names() {
+	uci.load('captive-portal');
+	const cp_iface = uci.get_first('captive-portal', 'service', 'interface') || 'lan';
+	uci.unload('captive-portal');
+
+	const names = [cp_iface];
+	const members = get_bridge_members(cp_iface);
+	for (let i = 0; i < length(members); i++) {
+		push(names, members[i]);
+	}
+	return names;
+}
+
+function sync_qos_config() {
+	uci.load('captive-portal');
+	const upload_bytes = uci.get_first('captive-portal', 'service', 'default_upload_limit') || '0';
+	const download_bytes = uci.get_first('captive-portal', 'service', 'default_download_limit') || '0';
+	uci.unload('captive-portal');
+
+	const upload_mbit = bytes_to_mbit(upload_bytes);
+	const download_mbit = bytes_to_mbit(download_bytes);
+	const match_names = get_qos_interface_names();
+
+	// Check for qosify
+	const fp_qosify = popen('test -f /etc/config/qosify && echo yes || echo no');
+	const has_qosify = trim(fp_qosify.read('all') || '') === 'yes';
+	fp_qosify.close();
+
+	if (has_qosify) {
+		uci.load('qosify');
+		let updated = false;
+		uci.foreach('qosify', 'interface', function(s) {
+			if (s.disabled === '1') return true;
+			const iface_name = s.name || s['.name'];
+			let matched = false;
+			for (let i = 0; i < length(match_names); i++) {
+				if (iface_name === match_names[i]) {
+					matched = true;
+					break;
+				}
+			}
+			if (!matched) return true;
+			uci.set('qosify', s['.name'], 'bandwidth_up', upload_mbit + 'mbit');
+			uci.set('qosify', s['.name'], 'bandwidth_down', download_mbit + 'mbit');
+			updated = true;
+			return true;
+		});
+		if (updated) {
+			uci.commit('qosify');
+		}
+		uci.unload('qosify');
+		return { success: true, qos: 'qosify' };
+	}
+
+	// Check for sqm
+	const fp_sqm = popen('test -f /etc/config/sqm && echo yes || echo no');
+	const has_sqm = trim(fp_sqm.read('all') || '') === 'yes';
+	fp_sqm.close();
+
+	if (has_sqm) {
+		uci.load('sqm');
+		let updated = false;
+		uci.foreach('sqm', 'queue', function(s) {
+			if (s.enabled === '0') return true;
+			const iface_name = s.interface || '';
+			let matched = false;
+			for (let i = 0; i < length(match_names); i++) {
+				if (iface_name === match_names[i]) {
+					matched = true;
+					break;
+				}
+			}
+			if (!matched) return true;
+			// SQM uses kbit/s, convert from bytes: bytes * 8 / 1000
+			const upload_kbit = '' + int((int(upload_bytes) || 0) * 8 / 1000);
+			const download_kbit = '' + int((int(download_bytes) || 0) * 8 / 1000);
+			uci.set('sqm', s['.name'], 'upload', upload_kbit);
+			uci.set('sqm', s['.name'], 'download', download_kbit);
+			updated = true;
+			return true;
+		});
+		if (updated) {
+			uci.commit('sqm');
+		}
+		uci.unload('sqm');
+		return { success: true, qos: 'sqm' };
+	}
+
+	return { success: true, qos: 'none' };
+}
+
 const methods = {
 	get_status: {
 		call: function() {
@@ -229,6 +353,12 @@ const methods = {
 			}
 			const output = get_daemon_status_text();
 			return { success: true, output: output };
+		}
+	},
+
+	get_network_devices: {
+		call: function() {
+			return { success: true, devices: get_network_devices() };
 		}
 	},
 
@@ -523,7 +653,15 @@ const methods = {
 			const fp = popen('/etc/init.d/' + daemon + ' restart 2>&1');
 			const output = trim(fp.read('all') || '');
 			fp.close();
-			return { success: true, output: output };
+
+			let qos = { success: true, qos: 'none' };
+			try {
+				qos = sync_qos_config();
+			} catch (e) {
+				qos = { success: false, error: 'QoS sync failed: ' + e };
+			}
+
+			return { success: true, output: output, qos: qos };
 		}
 	},
 };
