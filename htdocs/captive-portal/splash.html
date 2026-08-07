@@ -3,14 +3,14 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Welcome to $gatewayname</title>
+	<title>Captive Portal</title>
 	<link rel="stylesheet" href="splash.css">
 </head>
 <body>
 	<div class="container">
 		<div class="card">
 			<header class="card-header">
-				<h1>$gatewayname</h1>
+				<h1 id="gateway-name">Captive Portal</h1>
 				<p class="subtitle">Connect to the internet</p>
 			</header>
 
@@ -27,18 +27,12 @@
 							<li><span class="label">Manufacturer:</span> <span id="manufacturer">Unknown</span></li>
 							<li><span class="label">Device:</span> <span id="device">Unknown</span></li>
 							<li><span class="label">Browser:</span> <span id="browser">Unknown</span></li>
-							<li><span class="label">MAC Address:</span> <span id="mac-display">$clientmac</span></li>
+							<li><span class="label">MAC Address:</span> <span id="mac-display">Unknown</span></li>
 						</ul>
 					</div>
 
-					<div class="stats-section">
-						<span class="stat-badge">$nclients active users</span>
-					</div>
-
-					<form id="login-form" method="GET" action="$authaction">
-						<input type="hidden" name="tok" value="$tok">
-						<input type="hidden" name="redir" value="$redir">
-						<input type="hidden" name="clientmac" value="$clientmac">
+					<form id="login-form">
+						<p id="login-error" class="login-error" style="display:none; color: var(--accent); margin-bottom: 1rem; font-size: 0.85rem;" role="alert" aria-live="assertive"></p>
 
 						<div class="form-group">
 							<label for="username">Username</label>

@@ -33,14 +33,6 @@ return view.extend({
 		s = m.section(form.TypedSection, 'service', _('Service Configuration'));
 		s.anonymous = true;
 
-		o = s.option(form.DummyValue, 'daemon', _('Daemon'),
-			_('The active captive portal daemon (cannot be changed)'));
-		o.cfgvalue = function() {
-			var val = this.map.data.get(this.map.config, this.section, 'daemon');
-			return val === 'opennds' ? 'OpenNDS' : 'Nodogsplash';
-		};
-		o.rawhtml = true;
-
 		o = s.option(form.ListValue, 'interface', _('Interface'),
 			_('Network interface to bind to'));
 		o.rmempty = false;

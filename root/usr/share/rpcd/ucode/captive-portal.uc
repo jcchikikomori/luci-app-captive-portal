@@ -7,16 +7,33 @@ import { popen, lsdir } from 'fs';
 
 const uci = cursor();
 
+// openNDS is the sole supported daemon (the OpenWrt captive-portal daemon
+// packages mutually CONFLICT with each other, so there is no runtime toggle
+// to preserve).
+const CTL_BIN = 'ndsctl';
+const DAEMON_SVC = 'opennds';
+
+// Local FAS (Forwarding Authentication Service) listener wiring. These values
+// must match task-04's `uhttpd.captive_portal_fas` listener (`listen_http`
+// port) and task-10's `fas_auth` ubus method exactly — do not change one side
+// without updating the others.
+const FAS_PORT = '2080';
+const FAS_PATH = '/splash.html';
+const FAS_SECURE_ENABLED = '1';
+
+// Single generic failure message returned by fas_auth for every rejection
+// path (blocked MAC, no matching account, wrong username/password, MAC
+// mismatch, daemon call failure). fas_auth is reachable unauthenticated, so
+// the response must never let a caller distinguish "unknown username" from
+// "wrong password" from "blocked MAC" (account enumeration).
+const AUTH_FAILURE_MESSAGE = 'Authentication failed';
+
 function get_daemon() {
-	return uci.get_first('captive-portal', 'service', 'daemon') || 'nodogsplash';
+	return DAEMON_SVC;
 }
 
 function get_ctl_binary() {
-	const daemon = get_daemon();
-	if (daemon === 'opennds') {
-		return 'openndsctl';
-	}
-	return 'ndsctl';
+	return CTL_BIN;
 }
 
 function service_running() {
@@ -128,12 +145,7 @@ function parse_clients_json() {
 }
 
 function parse_clients_output() {
-	const daemon = get_daemon();
-	if (daemon === 'nodogsplash') {
-		return parse_clients_json();
-	}
-
-	return { clients: [], error: 'Client parsing not implemented for ' + daemon };
+	return parse_clients_json();
 }
 
 function get_daemon_status_text() {
@@ -149,9 +161,23 @@ function get_client_count() {
 	return length(result.clients || []);
 }
 
-function sync_nodogsplash_config() {
+// openNDS's `sessiontimeout` is in minutes; our UCI schema's `default_timeout`
+// is in seconds. A source value of 0 means "unlimited" in both systems and is
+// passed through unconverted; any other value is rounded up to at least 1
+// minute so a small nonzero second count never collapses to 0 (which would
+// mean "unlimited" instead of "very short").
+function timeout_seconds_to_minutes(default_timeout) {
+	const seconds = int(default_timeout) || 0;
+	if (seconds == 0) {
+		return '0';
+	}
+	const minutes = int(seconds / 60);
+	return '' + (minutes > 0 ? minutes : 1);
+}
+
+function sync_opennds_config() {
 	uci.load('captive-portal');
-	uci.load('nodogsplash');
+	uci.load('opennds');
 
 	const service = {
 		interface: uci.get_first('captive-portal', 'service', 'interface') || 'lan',
@@ -160,38 +186,32 @@ function sync_nodogsplash_config() {
 	};
 
 	let section_name = '';
-	uci.foreach('nodogsplash', 'nodogsplash', function(s) {
+	uci.foreach('opennds', 'opennds', function(s) {
 		section_name = s['.name'];
 		return false;
 	});
 
 	if (section_name == '') {
 		uci.unload('captive-portal');
-		uci.unload('nodogsplash');
-		return { success: false, error: 'No nodogsplash section found' };
+		uci.unload('opennds');
+		return { success: false, error: 'No opennds section found' };
 	}
 
-	uci.set('nodogsplash', section_name, 'gatewayname', service.gatewayname);
-	uci.set('nodogsplash', section_name, 'gatewayinterface', service.interface);
-	uci.set('nodogsplash', section_name, 'sessiontimeout', service.default_timeout);
-	uci.set('nodogsplash', section_name, 'binauth', '/usr/lib/captive-portal/binauth.sh');
-	uci.set('nodogsplash', section_name, 'webroot', '/www/captive-portal');
-	uci.set('nodogsplash', section_name, 'splashpage', 'splash.html');
-	uci.set('nodogsplash', section_name, 'statuspage', 'status.html');
+	uci.set('opennds', section_name, 'gatewayname', service.gatewayname);
+	uci.set('opennds', section_name, 'gatewayinterface', service.interface);
+	uci.set('opennds', section_name, 'sessiontimeout', timeout_seconds_to_minutes(service.default_timeout));
+	// binauth.sh is now logging-only (task-07); authentication itself is
+	// gated by the fas_auth ubus method (task-10), not this script.
+	uci.set('opennds', section_name, 'binauth', '/usr/lib/captive-portal/binauth.sh');
+	uci.set('opennds', section_name, 'fasport', FAS_PORT);
+	uci.set('opennds', section_name, 'faspath', FAS_PATH);
+	uci.set('opennds', section_name, 'fas_secure_enabled', FAS_SECURE_ENABLED);
 
-	uci.commit('nodogsplash');
+	uci.commit('opennds');
 	uci.unload('captive-portal');
-	uci.unload('nodogsplash');
+	uci.unload('opennds');
 
 	return { success: true };
-}
-
-function sync_daemon() {
-	const daemon = get_daemon();
-	if (daemon === 'nodogsplash') {
-		return sync_nodogsplash_config();
-	}
-	return { success: false, error: 'Sync not implemented for ' + daemon };
 }
 
 function bytes_to_mbit(bytes) {
@@ -318,6 +338,71 @@ function sync_qos_config() {
 	return { success: true, qos: 'none' };
 }
 
+// -- fas_auth support --------------------------------------------------
+//
+// openNDS's BinAuth hook cannot gate authentication (it only runs after the
+// daemon has already decided) — the local FAS flow calls the fas_auth ubus
+// method directly, and it is now the sole place guest credentials/blocked
+// MACs are validated. The precedence rules below are ported from this
+// package's original binauth.sh `auth_client` case (see git history), which
+// performed the same checks synchronously inside nodogsplash's BinAuth call.
+
+function is_mac_blocked(norm_mac) {
+	let blocked = false;
+	uci.foreach('captive-portal', 'blocked', function(s) {
+		if (s.enabled !== '1') return true;
+		if (normalize_mac(s.mac || '') === norm_mac) {
+			blocked = true;
+			return false;
+		}
+		return true;
+	});
+	return blocked;
+}
+
+function get_default_auth_method() {
+	return uci.get_first('captive-portal', 'service', 'auth_method') || 'both';
+}
+
+// Returns the matching guest account's session limits, or null if no
+// enabled `guest` section matches per its own (or the service-wide default)
+// `auth_method`: `password` matches on username+password only, `mac`
+// matches on MAC only, `both` requires username+password plus either no MAC
+// bound to the account or a MAC that matches the requesting client.
+function find_matching_guest(username, password, norm_mac, default_auth_method) {
+	let matched = null;
+
+	uci.foreach('captive-portal', 'guest', function(s) {
+		if (s.enabled !== '1') return true;
+
+		const stored_user = s.username || '';
+		const stored_pass = s.password || '';
+		const stored_mac = s.mac || '';
+		const stored_mac_norm = normalize_mac(stored_mac);
+		const auth_method = s.auth_method || default_auth_method;
+
+		const cred_match = (username === stored_user) && (password === stored_pass);
+		const mac_match = (stored_mac != '') && (norm_mac === stored_mac_norm);
+
+		let account_match = false;
+		if (auth_method == 'password') {
+			account_match = cred_match;
+		} else if (auth_method == 'mac') {
+			account_match = mac_match;
+		} else if (auth_method == 'both') {
+			account_match = cred_match && (stored_mac == '' || mac_match);
+		}
+
+		if (account_match) {
+			matched = { timeout: s.timeout || '1200' };
+			return false;
+		}
+		return true;
+	});
+
+	return matched;
+}
+
 const methods = {
 	get_status: {
 		call: function() {
@@ -329,7 +414,7 @@ const methods = {
 
 			uci.load('captive-portal');
 			const config = {
-				daemon: uci.get_first('captive-portal', 'service', 'daemon') || 'nodogsplash',
+				daemon: uci.get_first('captive-portal', 'service', 'daemon') || 'opennds',
 				interface: uci.get_first('captive-portal', 'service', 'interface') || 'lan',
 				gatewayname: uci.get_first('captive-portal', 'service', 'gatewayname') || 'CaptivePortal',
 			};
@@ -636,21 +721,89 @@ const methods = {
 		}
 	},
 
+	// Unauthenticated entry point called by the local FAS splash page
+	// (task-08's splash.js) after the guest submits credentials. This is
+	// the actual authentication decision point — the role binauth.sh's
+	// `auth_client` case used to play under nodogsplash.
+	fas_auth: {
+		args: {
+			data: {}
+		},
+		call: function(req) {
+			const data = (req.args && req.args.data) || {};
+			const username = data.username || '';
+			const password = data.password || '';
+			const mac = data.mac || '';
+			const redir = data.redir || '';
+
+			if (!mac) {
+				return { success: false, error: 'No MAC provided', redir: redir };
+			}
+
+			if (!service_running()) {
+				return { success: false, error: 'Service not running', redir: redir };
+			}
+
+			const norm_mac = normalize_mac(mac);
+
+			uci.load('captive-portal');
+
+			if (is_mac_blocked(norm_mac)) {
+				uci.unload('captive-portal');
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			const default_auth_method = get_default_auth_method();
+			const account = find_matching_guest(username, password, norm_mac, default_auth_method);
+
+			uci.unload('captive-portal');
+
+			if (!account) {
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			// Confirmed upstream syntax (ndsctl.c usage text): `ndsctl auth
+			// mac|ip|token sessiontimeout(minutes) uploadrate(kb/s)
+			// downloadrate(kb/s) uploadquota(kB) downloadquota(kB)
+			// customstring`. Only sessiontimeout is passed here, reusing the
+			// same seconds->minutes conversion already used for the global
+			// default_timeout in sync_opennds_config(). uploadrate/
+			// downloadrate/uploadquota/downloadquota are intentionally left
+			// unset (the daemon falls back to its own global settings):
+			// our per-account upload_limit/download_limit fields have no
+			// confirmed unit mapping onto ndsctl's kb/s rate model, and that
+			// mapping can't be verified without a real device. Do not guess
+			// at it — follow up separately before relying on per-client
+			// rate/quota enforcement via `ndsctl auth`.
+			const ctl = get_ctl_binary();
+			const target = lower_mac(mac);
+			const sessiontimeout = timeout_seconds_to_minutes(account.timeout);
+			const fp = popen(ctl + ' auth ' + target + ' ' + sessiontimeout + ' 2>&1');
+			fp.read('all');
+			const rc = fp.close();
+
+			if (rc != 0) {
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			return { success: true, redir: redir };
+		}
+	},
+
 	sync_daemon_config: {
 		call: function() {
-			return sync_daemon();
+			return sync_opennds_config();
 		}
 	},
 
 	restart_service: {
 		call: function() {
-			const sync = sync_daemon();
+			const sync = sync_opennds_config();
 			if (!sync.success) {
 				return sync;
 			}
 
-			const daemon = get_daemon();
-			const fp = popen('/etc/init.d/' + daemon + ' restart 2>&1');
+			const fp = popen('/etc/init.d/' + DAEMON_SVC + ' restart 2>&1');
 			const output = trim(fp.read('all') || '');
 			fp.close();
 

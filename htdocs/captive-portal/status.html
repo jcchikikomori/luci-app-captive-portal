@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Connected - $gatewayname</title>
+	<title id="page-title">Connected</title>
 	<link rel="stylesheet" href="splash.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
 		<div class="card">
 			<div class="card-header">
 				<h1>You're Connected!</h1>
-				<p class="subtitle">Welcome to $gatewayname</p>
+				<p class="subtitle" id="gateway-subtitle">Welcome</p>
 			</div>
 
 			<div class="card-body">
@@ -21,19 +21,15 @@
 					<h3>Session Info</h3>
 					<div class="status-row">
 						<span class="label">IP Address</span>
-						<span class="value">$clientip</span>
+						<span class="value" id="status-clientip">Unknown</span>
 					</div>
 					<div class="status-row">
 						<span class="label">MAC Address</span>
-						<span class="value">$clientmac</span>
-					</div>
-					<div class="status-row">
-						<span class="label">Active Users</span>
-						<span class="value">$nclients</span>
+						<span class="value" id="status-clientmac">Unknown</span>
 					</div>
 				</div>
 
-				<a href="$redir" class="btn btn-primary">Continue to Internet</a>
+				<a href="#" id="status-continue" class="btn btn-primary">Continue to Internet</a>
 			</div>
 
 			<div class="card-footer">
@@ -41,5 +37,47 @@
 			</div>
 		</div>
 	</div>
+
+	<script>
+		// openNDS has no `$var` template-substitution mechanism for static
+		// FAS assets (see docs/plans/analysis/opennds-verification-findings.md,
+		// section 5) — any client/session info this page displays must be
+		// sourced from its own query string (if the caller appended one)
+		// rather than assumed daemon-side substitution.
+		(function() {
+			'use strict';
+
+			// redir is attacker-influenced (query string). Reject
+			// javascript:/data: and other non-http(s) schemes before ever
+			// assigning it to an href, so a crafted redir value can't
+			// execute script when the link is clicked.
+			function sanitizeRedirect(url) {
+				try {
+					var parsed = new URL(url, window.location.origin);
+					if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+						return '/';
+					}
+					return parsed.href;
+				} catch (e) {
+					return '/';
+				}
+			}
+
+			var params = new URLSearchParams(window.location.search);
+			var gatewayname = params.get('gatewayname') || '';
+			var clientip = params.get('clientip') || '';
+			var clientmac = params.get('clientmac') || '';
+			var redir = sanitizeRedirect(params.get('redir') || '/');
+
+			if (gatewayname) {
+				document.getElementById('page-title').textContent = 'Connected - ' + gatewayname;
+				document.getElementById('gateway-subtitle').textContent = 'Welcome to ' + gatewayname;
+			}
+			if (clientip) document.getElementById('status-clientip').textContent = clientip;
+			if (clientmac) document.getElementById('status-clientmac').textContent = clientmac;
+
+			document.getElementById('status-continue').setAttribute('href', redir);
+		})();
+	</script>
 </body>
 </html>

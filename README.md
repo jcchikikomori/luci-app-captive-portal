@@ -2,13 +2,13 @@
 
 Captive Portal Management Console for OpenWrt.
 
-LuCI web interface for managing captive portal authentication, supporting both **nodogsplash** and **openNDS** daemons.
+LuCI web interface for managing captive portal authentication, built on the **openNDS** daemon.
 
 ## Features
 
 - **Dashboard** — Service status, daemon type, connected clients, uptime
 - **Guest Accounts** — CRUD management with username/password, MAC binding, bandwidth limits, session timeout
-- **Settings** — Daemon selector, interface, auth method, portal configuration
+- **Settings** — Interface, auth method, portal configuration
 - **Connected Clients** — Live session table with disconnect/block actions
 - **Blacklist** — Manage blocked MAC addresses; add manually or block directly from Connected Clients
 - **Blocked Splash Message** — Splash page hides the login form and shows a blocked message for blacklisted devices
@@ -24,7 +24,7 @@ LuCI web interface for managing captive portal authentication, supporting both *
 ## Requirements
 
 - OpenWrt with LuCI installed
-- nodogsplash or openNDS package
+- opennds package
 
 ## Installation
 
@@ -46,6 +46,19 @@ opkg update
 opkg install luci-app-captive-portal
 ```
 
+## Upgrading from nodogsplash
+
+Starting with version 2.0.0, this package depends on **opennds** instead of
+**nodogsplash**. Because postinst cannot safely force-remove a running
+daemon's package mid-upgrade, existing installs must remove `nodogsplash`
+manually before upgrading:
+
+```bash
+opkg remove nodogsplash
+opkg update
+opkg upgrade luci-app-captive-portal
+```
+
 ## Configuration
 
 After installation, access the LuCI web interface:
@@ -54,7 +67,7 @@ After installation, access the LuCI web interface:
 http://192.168.1.1/cgi-bin/luci/admin/services/captive-portal/
 ```
 
-Navigate to **Settings** to configure the daemon and interface.
+Navigate to **Settings** to configure the interface and other portal defaults.
 
 ## License
 

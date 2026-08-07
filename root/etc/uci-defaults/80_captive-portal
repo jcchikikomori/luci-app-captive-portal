@@ -6,7 +6,7 @@ touch /etc/config/captive-portal
 if ! uci -q get captive-portal.@service[0].daemon >/dev/null 2>&1; then
 	uci -q batch <<'EOF'
 add captive-portal service
-set captive-portal.@service[-1].daemon='nodogsplash'
+set captive-portal.@service[-1].daemon='opennds'
 set captive-portal.@service[-1].interface='lan'
 set captive-portal.@service[-1].auth_method='both'
 set captive-portal.@service[-1].portal_name='Guest WiFi'
@@ -35,29 +35,52 @@ commit captive-portal
 EOF
 fi
 
-# Configure the captive portal daemon to use this package's assets
-DAEMON=$(uci -q get captive-portal.@service[0].daemon)
+# Configure openNDS to use this package's assets. openNDS is the sole
+# supported captive portal daemon, so there is no other daemon value to
+# gate this section on.
+if ! uci -q get opennds.@opennds[0] >/dev/null 2>&1; then
+	uci -q add opennds opennds >/dev/null
+fi
 
-if [ "$DAEMON" = "nodogsplash" ]; then
-	# Ensure nodogsplash has a configuration section
-	if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
-		uci -q add nodogsplash nodogsplash >/dev/null
-	fi
+iface=$(uci -q get captive-portal.@service[0].interface)
+gatewayname=$(uci -q get captive-portal.@service[0].gatewayname)
+timeout=$(uci -q get captive-portal.@service[0].default_timeout)
+timeout="${timeout:-1200}"
 
-	iface=$(uci -q get captive-portal.@service[0].interface)
-	gatewayname=$(uci -q get captive-portal.@service[0].gatewayname)
-	timeout=$(uci -q get captive-portal.@service[0].default_timeout)
+# openNDS's sessiontimeout is in minutes; our default_timeout is in
+# seconds. 0 means "unlimited" and passes through unconverted; any other
+# value is rounded up to at least 1 minute.
+if [ "$timeout" -eq 0 ] 2>/dev/null; then
+	minutes=0
+else
+	minutes=$((timeout / 60))
+	[ "$minutes" -lt 1 ] && minutes=1
+fi
 
-	uci -q batch <<EOF
-set nodogsplash.@nodogsplash[0].gatewayname='${gatewayname:-CaptivePortal}'
-set nodogsplash.@nodogsplash[0].gatewayinterface='${iface:-lan}'
-set nodogsplash.@nodogsplash[0].sessiontimeout='${timeout:-1200}'
-set nodogsplash.@nodogsplash[0].binauth='/usr/lib/captive-portal/binauth.sh'
-set nodogsplash.@nodogsplash[0].webroot='/www/captive-portal'
-set nodogsplash.@nodogsplash[0].splashpage='splash.html'
-set nodogsplash.@nodogsplash[0].statuspage='status.html'
-commit nodogsplash
+uci -q batch <<EOF
+set opennds.@opennds[0].gatewayname='${gatewayname:-CaptivePortal}'
+set opennds.@opennds[0].gatewayinterface='${iface:-lan}'
+set opennds.@opennds[0].sessiontimeout='${minutes}'
+set opennds.@opennds[0].binauth='/usr/lib/captive-portal/binauth.sh'
+set opennds.@opennds[0].fasport='2080'
+set opennds.@opennds[0].faspath='/splash.html'
+set opennds.@opennds[0].fas_secure_enabled='1'
+commit opennds
 EOF
+
+# Create the local FAS (Forwarding Authentication Service) listener on
+# uhttpd if it does not exist yet. This serves the fas_auth ubus method
+# and the static splash assets pre-login on the same port as opennds's
+# fasport above.
+if ! uci -q get uhttpd.captive_portal_fas >/dev/null 2>&1; then
+	uci -q batch <<'EOF'
+add uhttpd captive_portal_fas
+set uhttpd.captive_portal_fas.listen_http='0.0.0.0:2080'
+set uhttpd.captive_portal_fas.home='/www/captive-portal'
+set uhttpd.captive_portal_fas.ubus_prefix='/ubus'
+commit uhttpd
+EOF
+	/etc/init.d/uhttpd restart
 fi
 
 # Register with LuCI's apply tracker so Save & Apply restarts the captive-portal service

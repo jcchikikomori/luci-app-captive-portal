@@ -1,57 +1,54 @@
 {
-	"admin/services/captive-portal/": {
-		"title": "Captive Portal",
-		"order": 60,
-		"action": {
-			"type": "firstchild"
-		},
-		"depends": {
-			"acl": [ "luci-app-captive-portal" ]
-		}
-	},
-
-	"admin/services/captive-portal/status": {
-		"title": "Status",
-		"order": 1,
-		"action": {
-			"type": "view",
-			"path": "captive-portal/status"
-		}
-	},
-
-	"admin/services/captive-portal/accounts": {
-		"title": "Guest Accounts",
-		"order": 2,
-		"action": {
-			"type": "view",
-			"path": "captive-portal/accounts"
-		}
-	},
-
-	"admin/services/captive-portal/settings": {
-		"title": "Settings",
-		"order": 3,
-		"action": {
-			"type": "view",
-			"path": "captive-portal/settings"
-		}
-	},
-
-	"admin/services/captive-portal/clients": {
-		"title": "Connected Clients",
-		"order": 4,
-		"action": {
-			"type": "view",
-			"path": "captive-portal/clients"
-		}
-	},
-
-	"admin/services/captive-portal/blacklist": {
-		"title": "Blacklist",
-		"order": 5,
-		"action": {
-			"type": "view",
-			"path": "captive-portal/blacklist"
-		}
-	}
+  "admin/services/captive-portal/": {
+    "action": {
+      "type": "firstchild"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-captive-portal"
+      ]
+    },
+    "order": 60,
+    "title": "Captive Portal"
+  },
+  "admin/services/captive-portal/accounts": {
+    "action": {
+      "path": "captive-portal/accounts",
+      "type": "view"
+    },
+    "order": 2,
+    "title": "Guest Accounts"
+  },
+  "admin/services/captive-portal/blacklist": {
+    "action": {
+      "path": "captive-portal/blacklist",
+      "type": "view"
+    },
+    "order": 5,
+    "title": "Blacklist"
+  },
+  "admin/services/captive-portal/clients": {
+    "action": {
+      "path": "captive-portal/clients",
+      "type": "view"
+    },
+    "order": 4,
+    "title": "Connected Clients"
+  },
+  "admin/services/captive-portal/settings": {
+    "action": {
+      "path": "captive-portal/settings",
+      "type": "view"
+    },
+    "order": 3,
+    "title": "Settings"
+  },
+  "admin/services/captive-portal/status": {
+    "action": {
+      "path": "captive-portal/status",
+      "type": "view"
+    },
+    "order": 1,
+    "title": "Status"
+  }
 }

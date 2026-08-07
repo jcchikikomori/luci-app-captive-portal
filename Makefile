@@ -1,11 +1,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-captive-portal
-PKG_VERSION:=1.0.0
+PKG_VERSION:=2.0.0
 PKG_RELEASE:=1
 
 LUCI_TITLE:=LuCI Captive Portal Management
-LUCI_DEPENDS:=+nodogsplash +kmod-sched-core +kmod-ifb +tc
+LUCI_DEPENDS:=+opennds +kmod-sched-core +kmod-ifb +tc
 LUCI_PKGARCH:=all
 
 PKG_LICENSE:=Apache-2.0
