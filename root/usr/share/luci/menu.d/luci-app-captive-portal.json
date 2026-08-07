@@ -1,0 +1,57 @@
+{
+	"admin/services/captive-portal/": {
+		"title": "Captive Portal",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-captive-portal" ]
+		}
+	},
+
+	"admin/services/captive-portal/status": {
+		"title": "Status",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "captive-portal/status"
+		}
+	},
+
+	"admin/services/captive-portal/accounts": {
+		"title": "Guest Accounts",
+		"order": 2,
+		"action": {
+			"type": "view",
+			"path": "captive-portal/accounts"
+		}
+	},
+
+	"admin/services/captive-portal/settings": {
+		"title": "Settings",
+		"order": 3,
+		"action": {
+			"type": "view",
+			"path": "captive-portal/settings"
+		}
+	},
+
+	"admin/services/captive-portal/clients": {
+		"title": "Connected Clients",
+		"order": 4,
+		"action": {
+			"type": "view",
+			"path": "captive-portal/clients"
+		}
+	},
+
+	"admin/services/captive-portal/blacklist": {
+		"title": "Blacklist",
+		"order": 5,
+		"action": {
+			"type": "view",
+			"path": "captive-portal/blacklist"
+		}
+	}
+}

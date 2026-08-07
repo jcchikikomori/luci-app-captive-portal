@@ -15,7 +15,7 @@ Guest accounts stored in UCI config. BinAuth reads directly from UCI (no externa
 ## License Constraints
 
 - **All code must be Apache 2.0 compatible.**
-- **DO NOT** copy or port code from nodogsplash-mod (GPL-2.0). Write fresh implementations inspired by the design.
+- **DO NOT** copy or port code from nodogsplash (GPL-2.0) and openNDS (GPL-2.0). Write fresh implementations inspired by the design.
 - **DO NOT** include GPL-2.0 licensed code in this project.
 - The binauth script and splash page must be written from scratch.
 
@@ -26,6 +26,8 @@ Guest accounts stored in UCI config. BinAuth reads directly from UCI (no externa
 ```
 luci-app-captive-portal/
 ├── Makefile
+├── build.sh                               # SDK build script
+├── deploy.sh                              # Manual deploy script
 ├── AGENTS.md
 ├── LICENSE
 ├── README.md
@@ -169,16 +171,64 @@ Fresh HTML5/CSS/JS implementation inspired by nodogsplash-mod design:
 
 | Step | Task | Status |
 |------|------|--------|
-| 1 | Scaffolding (Makefile, LICENSE, README, directory structure) | pending |
-| 2 | UCI defaults + Menu JSON + ACL JSON | pending |
-| 3 | RPC ucode backend (`captive-portal.uc`) | pending |
-| 4 | Settings view (`settings.js`) | pending |
-| 5 | Guest Accounts view (`accounts.js`) | pending |
-| 6 | Status view (`status.js`) | pending |
-| 7 | Clients view (`clients.js`) | pending |
-| 8 | BinAuth script (`binauth.sh`) | pending |
-| 9 | Splash page (HTML/CSS/JS) | pending |
-| 10 | Translation template (`captive-portal.pot`) | pending |
+| 1 | Scaffolding (Makefile, LICENSE, README, directory structure) | completed |
+| 2 | UCI defaults + Menu JSON + ACL JSON | completed |
+| 3 | RPC ucode backend (`captive-portal.uc`) | completed |
+| 4 | Settings view (`settings.js`) | completed |
+| 5 | Guest Accounts view (`accounts.js`) | completed |
+| 6 | Status view (`status.js`) | completed |
+| 7 | Clients view (`clients.js`) | completed |
+| 8 | BinAuth script (`binauth.sh`) | completed |
+| 9 | Splash page (HTML/CSS/JS) | completed |
+| 10 | Translation template (`captive-portal.pot`) | completed |
+
+---
+
+## Build & Deploy
+
+### Target Environment
+
+- **OpenWrt Version:** 24.10.2 (r28739-d9340319c6)
+- **LuCI Version:** openwrt-24.10 branch 26.081.63927~e56e710
+- **Target Platform:** ramips/mt7621
+
+### Option A: SDK Build (produces .ipk)
+
+```bash
+./build.sh
+```
+
+This will:
+1. Download the OpenWrt SDK for ramips/mt7621 if not present
+2. Copy package files into the SDK
+3. Build the ipk package
+4. Output the ipk location for installation
+
+### Option B: Manual Deploy (for development)
+
+```bash
+./deploy.sh [device-ip]
+# Default: ./deploy.sh 192.168.1.1
+```
+
+This copies files directly to the device and restarts services.
+
+### Installation (from ipk)
+
+```bash
+# Copy ipk to router
+scp bin/packages/*/luci/luci-app-captive-portal*.ipk root@192.168.1.1:/tmp/
+
+# Install
+ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
+```
+
+### Post-Installation
+
+1. Log out and back into LuCI to clear cache
+2. Navigate to **Services > Captive Portal**
+3. Configure daemon and interface in **Settings**
+4. Add guest accounts in **Guest Accounts**
 
 ---
 
@@ -198,10 +248,16 @@ Fresh HTML5/CSS/JS implementation inspired by nodogsplash-mod design:
 ## Key Design Decisions
 
 1. **UCI-native storage** — Guest accounts in `/etc/config/captive-portal`, survives reboots, CLI-accessible
-2. **Dual daemon support** — RPC backend detects configured daemon, calls appropriate control binary
+2. **Daemon support for either nodogsplash & OpenNDS** — RPC backend detects configured daemon, calls appropriate control binary
 3. **No external dependencies** — binauth uses `uci` CLI instead of jq/curl/API
 4. **Fresh splash page** — Inspired by nodogsplash-mod but written from scratch (Apache 2.0 clean)
 5. **BinAuth over FAS** — Use BinAuth for authentication hook (simpler, no external web server needed)
+
+---
+
+## Compatibility note
+
+- Initial implementation will be focused on nodogsplash, but later on, we will migrate to openNDS.
 
 ---
 
@@ -210,3 +266,12 @@ Fresh HTML5/CSS/JS implementation inspired by nodogsplash-mod design:
 1. Building this software
 2. This is supposed to be a submodule (standalone module) of the author's fork of LuCI (https://github.com/jcchikikomori/luci), since the dependencies are sitting there.
 3. Testing this software on the actual OpenWRT software with LuCI installed
+4. Software compatibility, particularly on non-x86 platforms (ramips/mt7621, ARMv7, etc.)
+5. **openNDS support** — Currently focused on nodogsplash. openNDS config keys, control binary (`openndsctl`), BinAuth argument order, and splash-page template variables may differ and need a dedicated pass.
+
+---
+
+## References
+
+- https://nodogsplash.readthedocs.io/en/latest/
+- https://opennds.readthedocs.io/en/stable/index.html

@@ -1,0 +1,18 @@
+{
+	"luci-app-captive-portal": {
+		"description": "Grant access to Captive Portal management",
+		"read": {
+			"ubus": {
+				"luci.captive-portal": [ "*" ]
+			},
+			"uci": [ "captive-portal", "nodogsplash", "opennds" ]
+		},
+		"write": {
+			"uci": [ "captive-portal", "nodogsplash", "opennds" ],
+			"ubus": {
+				"luci.captive-portal": [ "*" ],
+				"service": [ "*" ]
+			}
+		}
+	}
+}

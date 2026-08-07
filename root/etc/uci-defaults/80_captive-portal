@@ -1,0 +1,79 @@
+#!/bin/sh
+
+touch /etc/config/captive-portal
+
+# Create the default service section if it does not exist yet
+if ! uci -q get captive-portal.@service[0].daemon >/dev/null 2>&1; then
+	uci -q batch <<'EOF'
+add captive-portal service
+set captive-portal.@service[-1].daemon='nodogsplash'
+set captive-portal.@service[-1].interface='lan'
+set captive-portal.@service[-1].auth_method='both'
+set captive-portal.@service[-1].portal_name='Guest WiFi'
+set captive-portal.@service[-1].max_client_time='0'
+set captive-portal.@service[-1].gatewayname='CaptivePortal'
+set captive-portal.@service[-1].default_upload_limit='0'
+set captive-portal.@service[-1].default_download_limit='0'
+set captive-portal.@service[-1].default_timeout='1200'
+commit captive-portal
+EOF
+fi
+
+# Create a default guest account if none exists yet
+if ! uci -q get captive-portal.@guest[0].username >/dev/null 2>&1; then
+	uci -q batch <<'EOF'
+add captive-portal guest
+set captive-portal.@guest[-1].username='guestuser'
+set captive-portal.@guest[-1].password='ph4hhw0rDd'
+set captive-portal.@guest[-1].mac=''
+set captive-portal.@guest[-1].upload_limit='0'
+set captive-portal.@guest[-1].download_limit='0'
+set captive-portal.@guest[-1].timeout='1200'
+set captive-portal.@guest[-1].auth_method='password'
+set captive-portal.@guest[-1].enabled='1'
+commit captive-portal
+EOF
+fi
+
+# Configure the captive portal daemon to use this package's assets
+DAEMON=$(uci -q get captive-portal.@service[0].daemon)
+
+if [ "$DAEMON" = "nodogsplash" ]; then
+	# Ensure nodogsplash has a configuration section
+	if ! uci -q get nodogsplash.@nodogsplash[0] >/dev/null 2>&1; then
+		uci -q add nodogsplash nodogsplash >/dev/null
+	fi
+
+	iface=$(uci -q get captive-portal.@service[0].interface)
+	gatewayname=$(uci -q get captive-portal.@service[0].gatewayname)
+	timeout=$(uci -q get captive-portal.@service[0].default_timeout)
+
+	uci -q batch <<EOF
+set nodogsplash.@nodogsplash[0].gatewayname='${gatewayname:-CaptivePortal}'
+set nodogsplash.@nodogsplash[0].gatewayinterface='${iface:-lan}'
+set nodogsplash.@nodogsplash[0].sessiontimeout='${timeout:-1200}'
+set nodogsplash.@nodogsplash[0].binauth='/usr/lib/captive-portal/binauth.sh'
+set nodogsplash.@nodogsplash[0].webroot='/www/captive-portal'
+set nodogsplash.@nodogsplash[0].splashpage='splash.html'
+set nodogsplash.@nodogsplash[0].statuspage='status.html'
+commit nodogsplash
+EOF
+fi
+
+# Register with LuCI's apply tracker so Save & Apply restarts the captive-portal service
+uci -q set ucitrack.captive_portal=captive-portal
+uci -q set ucitrack.captive_portal.init='captive-portal'
+uci -q commit ucitrack
+
+# Enable and start the captive-portal service so Save & Apply triggers a daemon reload
+if [ -x /etc/init.d/captive-portal ]; then
+	/etc/init.d/captive-portal enable
+	/etc/init.d/captive-portal start
+fi
+
+# Generate the static blocked list used by the splash page
+if [ -x /usr/lib/captive-portal/sync-blocked-json.sh ]; then
+	/usr/lib/captive-portal/sync-blocked-json.sh
+fi
+
+exit 0

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Connected - $gatewayname</title>
+	<link rel="stylesheet" href="splash.css">
+</head>
+<body>
+	<div class="container status-container">
+		<div class="card">
+			<div class="card-header">
+				<h1>You're Connected!</h1>
+				<p class="subtitle">Welcome to $gatewayname</p>
+			</div>
+
+			<div class="card-body">
+				<div class="status-icon">&#10003;</div>
+
+				<div class="status-card">
+					<h3>Session Info</h3>
+					<div class="status-row">
+						<span class="label">IP Address</span>
+						<span class="value">$clientip</span>
+					</div>
+					<div class="status-row">
+						<span class="label">MAC Address</span>
+						<span class="value">$clientmac</span>
+					</div>
+					<div class="status-row">
+						<span class="label">Active Users</span>
+						<span class="value">$nclients</span>
+					</div>
+				</div>
+
+				<a href="$redir" class="btn btn-primary">Continue to Internet</a>
+			</div>
+
+			<div class="card-footer">
+				<p class="status-footer">You can now browse the internet</p>
+			</div>
+		</div>
+	</div>
+</body>
+</html>
