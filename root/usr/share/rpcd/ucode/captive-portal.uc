@@ -159,6 +159,28 @@ function drop_client(mac) {
 	return { success: false, error: output };
 }
 
+// openNDS's `ndsctl json` does not track a "username" per client at all
+// (it only knows mac/ip/state/session times/token — usernames are our own
+// app-level concept, not the daemon's). Best-effort: cross-reference the
+// client's MAC against any guest account that has that MAC explicitly
+// bound. Accounts using password-only auth (no bound MAC) can't be
+// resolved this way, since the daemon has no record of which shared
+// account a given MAC authenticated with — returns '' for those (shown as
+// "-" in the Connected Clients table), same as before this fix.
+function find_username_by_mac(norm_mac) {
+	let username = '';
+	uci.foreach('captive-portal', 'guest', function(s) {
+		if (s.enabled !== '1') return true;
+		const stored_mac = s.mac || '';
+		if (stored_mac != '' && normalize_mac(stored_mac) === norm_mac) {
+			username = s.username || '';
+			return false;
+		}
+		return true;
+	});
+	return username;
+}
+
 function parse_clients_json() {
 	const ctl = get_ctl_binary();
 	const fp = popen(ctl + ' json 2>/dev/null');
@@ -178,20 +200,36 @@ function parse_clients_json() {
 
 	const clients = [];
 	const client_map = data.clients || {};
+	const now = time();
+
+	uci.load('captive-portal');
 
 	for (let key in client_map) {
 		const c = client_map[key];
 		if (c == null) continue;
 
+		const mac = c.mac || key;
+		// session_start is a unix timestamp, '0' for a client that hasn't
+		// authenticated yet (state "Preauthenticated") — uptime is elapsed
+		// wall-clock time since then, not a field ndsctl provides directly.
+		const session_start = int(c.session_start) || 0;
+		const uptime_seconds = session_start > 0 ? (now - session_start) : 0;
+
 		push(clients, {
-			mac: c.mac || key,
+			mac: mac,
 			ip: c.ip || '',
-			username: c.username || '',
-			uptime: format_duration(c.duration || 0),
-			downloaded: c.downloaded || 0,
-			uploaded: c.uploaded || 0,
+			username: find_username_by_mac(normalize_mac(mac)),
+			uptime: format_duration(uptime_seconds),
+			// ndsctl's field names are download_this_session/
+			// upload_this_session (bytes) — there is no plain
+			// "downloaded"/"uploaded" field (that was nodogsplash's
+			// naming, carried over incorrectly during the migration).
+			downloaded: int(c.download_this_session) || 0,
+			uploaded: int(c.upload_this_session) || 0,
 		});
 	}
+
+	uci.unload('captive-portal');
 
 	return { clients: clients };
 }
@@ -250,6 +288,11 @@ function sync_opennds_config() {
 	}
 
 	uci.set('opennds', section_name, 'enabled', '1');
+	// openNDS defaults enable_serial_number_suffix to 1 (enabled) and
+	// appends "Node:<router-mac-based-serial>" to gatewayname unless told
+	// otherwise — confirmed on real hardware ("Corsanes Guest WiFi
+	// Node:ae15a2c96cc7"). We want the configured name shown as-is.
+	uci.set('opennds', section_name, 'enable_serial_number_suffix', '0');
 	uci.set('opennds', section_name, 'gatewayname', service.gatewayname);
 	uci.set('opennds', section_name, 'gatewayinterface', service.interface);
 	uci.set('opennds', section_name, 'sessiontimeout', timeout_seconds_to_minutes(service.default_timeout));

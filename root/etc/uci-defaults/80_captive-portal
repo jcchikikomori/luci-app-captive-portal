@@ -63,6 +63,7 @@ fi
 # note). Keep this in sync with FAS_SECURE_ENABLED in captive-portal.uc.
 uci -q batch <<EOF
 set opennds.@opennds[0].enabled='1'
+set opennds.@opennds[0].enable_serial_number_suffix='0'
 set opennds.@opennds[0].gatewayname='${gatewayname:-CaptivePortal}'
 set opennds.@opennds[0].gatewayinterface='${iface:-lan}'
 set opennds.@opennds[0].sessiontimeout='${minutes}'

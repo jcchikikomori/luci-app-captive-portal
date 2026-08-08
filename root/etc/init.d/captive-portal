@@ -25,6 +25,7 @@ sync_opennds() {
 	fi
 
 	uci set opennds.@opennds[0].enabled='1'
+	uci set opennds.@opennds[0].enable_serial_number_suffix='0'
 	uci set opennds.@opennds[0].gatewayname="${gatewayname:-CaptivePortal}"
 	uci set opennds.@opennds[0].gatewayinterface="${iface:-lan}"
 	uci set opennds.@opennds[0].sessiontimeout="$minutes"
