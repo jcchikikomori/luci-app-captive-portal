@@ -52,12 +52,30 @@ function service_running() {
 	return length(pid) > 0;
 }
 
-function get_uptime() {
-	const daemon = get_daemon();
-	const fp = popen('ps -o etime= -C ' + daemon + ' 2>/dev/null');
-	const etime = trim(fp.read('all') || '');
-	fp.close();
-	return etime;
+// `ndsctl status`'s own text already reports both an "Uptime: ..." line and a
+// "Current clients: N" line. get_status() used to pay for THREE additional
+// subprocess round-trips (pidof + `ps -o etime -C` + a full `ndsctl json`
+// parse) just to reconstruct these two values separately - on real hardware
+// `ndsctl json` alone measured 4-7s per call (daemon-side, not our fork
+// overhead: `ps -o etime -C` doesn't even work on this busybox build in the
+// first place - `-o`/`-C` aren't supported, so uptime was silently always
+// empty). Parsing both out of the single `ndsctl status` call already needed
+// for daemon_status removes a redundant multi-second daemon round-trip
+// entirely. get_clients (Connected Clients page) still needs the full
+// `ndsctl json` parse for per-client detail and is untouched.
+function parse_status_summary(text) {
+	const t = text || '';
+	// `[^\n]+`, not `.+` - on this project's real router the ucode regex
+	// engine's `.` matches newline (POSIX regcomp default without
+	// REG_NEWLINE), unlike some local ucode builds where it doesn't. A
+	// live-hardware test caught `.+` here greedily swallowing the rest of
+	// the whole status text into `uptime`. See CLAUDE.md TODO/decisions.
+	const uptime_m = match(t, /Uptime: ([^\n]+)/);
+	const clients_m = match(t, /Current clients: ([0-9]+)/);
+	return {
+		uptime: uptime_m ? trim(uptime_m[1]) : '',
+		client_count: clients_m ? int(clients_m[1]) : 0,
+	};
 }
 
 function format_duration(seconds) {
@@ -181,9 +199,26 @@ function find_username_by_mac(norm_mac) {
 	return username;
 }
 
-function parse_clients_json() {
+// `ndsctl json` is a clean, byte-precise source (real session_start unix
+// timestamp, exact byte counts) but on real hardware measured 2x slower than
+// `ndsctl status` for the same daemon, same client count (5-8s vs 2-3s,
+// reproduced head-to-head, repeatedly - a daemon-side cost, not our fork
+// overhead). User-approved tradeoff: parse the already-fetched `ndsctl
+// status` text instead, accepting two precision losses vs the old json path:
+//   - "uptime" becomes "time since last activity" (status has no machine-
+//     parseable session-start timestamp when Preauthenticated - just "-" or
+//     a human date string, and ucode has no date-parsing builtin to recover
+//     an epoch from that) rather than true session duration.
+//   - downloaded/uploaded are read from status's whole-kB fields (x1024) and
+//     lose the byte-level precision `download_this_session`/
+//     `upload_this_session` had in the json output.
+// Parsed line-by-line (no multi-line regex): the real router's ucode regex
+// engine matches newline with a bare `.` (POSIX regcomp default, no
+// REG_NEWLINE - see parse_status_summary()'s comment), which makes any
+// greedy multi-line pattern unsafe here.
+function parse_clients_from_status() {
 	const ctl = get_ctl_binary();
-	const fp = popen(ctl + ' json 2>/dev/null');
+	const fp = popen(ctl + ' status 2>&1');
 	const output = fp.read('all') || '';
 	fp.close();
 
@@ -191,51 +226,58 @@ function parse_clients_json() {
 		return { clients: [], error: 'Unable to read client list' };
 	}
 
-	let data = null;
-	try {
-		data = json(output);
-	} catch (e) {
-		return { clients: [], error: 'Failed to parse client data' };
-	}
-
+	const lines = split(output, '\n');
 	const clients = [];
-	const client_map = data.clients || {};
-	const now = time();
+	let current = null;
+
+	for (let i = 0; i < length(lines); i++) {
+		const line = lines[i];
+
+		if (match(line, /^Client [0-9]+/)) {
+			if (current) push(clients, current);
+			current = { mac: '', ip: '', uptime: '-', downloaded: 0, uploaded: 0 };
+			continue;
+		}
+
+		if (!current) continue;
+
+		const ip_mac_m = match(line, /IP: ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) MAC: ([0-9A-Fa-f:]+)/);
+		if (ip_mac_m) {
+			current.ip = ip_mac_m[1];
+			current.mac = normalize_mac(ip_mac_m[2]);
+			continue;
+		}
+
+		const activity_m = match(line, /Last Activity: .*\(([^)]+) ago\)/);
+		if (activity_m) {
+			current.uptime = trim(activity_m[1]);
+			continue;
+		}
+
+		const down_m = match(line, /Download this session: ([0-9]+) kB/);
+		if (down_m) {
+			current.downloaded = int(down_m[1]) * 1024;
+			continue;
+		}
+
+		const up_m = match(line, /Upload this session: ([0-9]+) kB/);
+		if (up_m) {
+			current.uploaded = int(up_m[1]) * 1024;
+		}
+	}
+	if (current) push(clients, current);
 
 	uci.load('captive-portal');
-
-	for (let key in client_map) {
-		const c = client_map[key];
-		if (c == null) continue;
-
-		const mac = c.mac || key;
-		// session_start is a unix timestamp, '0' for a client that hasn't
-		// authenticated yet (state "Preauthenticated") — uptime is elapsed
-		// wall-clock time since then, not a field ndsctl provides directly.
-		const session_start = int(c.session_start) || 0;
-		const uptime_seconds = session_start > 0 ? (now - session_start) : 0;
-
-		push(clients, {
-			mac: mac,
-			ip: c.ip || '',
-			username: find_username_by_mac(normalize_mac(mac)),
-			uptime: format_duration(uptime_seconds),
-			// ndsctl's field names are download_this_session/
-			// upload_this_session (bytes) — there is no plain
-			// "downloaded"/"uploaded" field (that was nodogsplash's
-			// naming, carried over incorrectly during the migration).
-			downloaded: int(c.download_this_session) || 0,
-			uploaded: int(c.upload_this_session) || 0,
-		});
+	for (let i = 0; i < length(clients); i++) {
+		clients[i].username = find_username_by_mac(clients[i].mac);
 	}
-
 	uci.unload('captive-portal');
 
 	return { clients: clients };
 }
 
 function parse_clients_output() {
-	return parse_clients_json();
+	return parse_clients_from_status();
 }
 
 function get_daemon_status_text() {
@@ -244,11 +286,6 @@ function get_daemon_status_text() {
 	const output = fp.read('all') || '';
 	fp.close();
 	return output;
-}
-
-function get_client_count() {
-	const result = parse_clients_output();
-	return length(result.clients || []);
 }
 
 // openNDS's `sessiontimeout` is in minutes; our UCI schema's `default_timeout`
@@ -504,9 +541,10 @@ const methods = {
 		call: function() {
 			const daemon = get_daemon();
 			const running = service_running();
-			const uptime = running ? get_uptime() : '';
-			const client_count = running ? get_client_count() : 0;
 			const daemon_status = running ? get_daemon_status_text() : '';
+			const summary = running ? parse_status_summary(daemon_status) : { uptime: '', client_count: 0 };
+			const uptime = summary.uptime;
+			const client_count = summary.client_count;
 
 			uci.load('captive-portal');
 			const config = {
