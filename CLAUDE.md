@@ -245,6 +245,10 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 3. Configure interface in **Settings**
 4. Add guest accounts in **Guest Accounts**
 
+### Testing rpcd/ucode Logic Locally
+
+`captive-portal.uc` runs under `ucode`, which isn't installed on a typical dev machine. For any change touching `popen()`/shell-command construction (e.g. `fas_auth`), don't rely on static review alone: build a real `ucode` interpreter from source (`apt install libjson-c-dev`, then build `github.com/jow-/ucode` with cmake) and execute the actual script against crafted/edge-case inputs — this is how the `fas_auth` command-injection fix was verified, not just reasoned about.
+
 ---
 
 ## Code Conventions
@@ -257,6 +261,7 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 - Shell scripts: POSIX sh compatible (no bashisms), use `#!/bin/sh`
 - Bandwidth values stored as bytes; format to human-readable (KB/MB/GB) in the JS view
 - MAC addresses normalized to uppercase for comparison
+- When creating a UCI section that must be addressable by a fixed name later, use `uci set <config>.<name>=<type>`, not `uci add <config> <type>` — the latter creates an anonymous section, not one named `<type>` (this caused a real bug in the FAS uhttpd listener creation).
 
 ---
 
@@ -294,6 +299,7 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 10. ~~`uhttpd.captive_portal_fas` and the rpcd `"unauthenticated"` ACL group convention are unverified against a live device~~ — **confirmed working on real hardware** (OpenWrt 24.10.2, ramips/mt7621): the FAS listener binds on port 2080, serves the splash assets and `/ubus`, and the `unauthenticated` ACL group correctly grants anonymous access to `fas_auth` only. Two real bugs were found and fixed in the process: (a) `sync_opennds_config()`/`sync_opennds()`/uci-defaults never set `opennds.@opennds[0].enabled`, so a pre-existing or otherwise-disabled `opennds` config section left the daemon never starting — now explicitly set to `'1'` in all three places; (b) uci-defaults created the uhttpd instance with `add uhttpd captive_portal_fas` (creates an *anonymous* section of that type, not a section *named* `captive_portal_fas`), so every subsequent `set uhttpd.captive_portal_fas.*` silently failed — fixed to `set uhttpd.captive_portal_fas=uhttpd` (named-section syntax).
 11. **Minor unexplained `uci: Invalid argument` messages during `opennds`/`captive-portal` restart** — cosmetic, non-blocking (service starts, FAS listener works, auth flow works); traced away from our own scripts (uci-defaults, init.d, tc-helper.sh all ran clean under `sh -x`) — likely internal to openNDS's own startup/firewall-hook chain. Not investigated further; revisit if it turns out to correlate with an actual functional issue later.
 12. **`ndsctl auth <mac>` requires a MAC openNDS already has a pending session for** — confirmed on real hardware: calling `fas_auth` with a MAC that never actually made an HTTP request through the captive portal fails (`ndsctl auth` correctly refuses an unknown client). This is expected upstream behavior, not a bug — `fas_auth` is only ever reachable in practice via the real FAS redirect flow (which guarantees a pending session already exists), but worth documenting so it isn't mistaken for a defect during future testing.
+13. **`postrm`'s `uci delete captive-portal` is a no-op** — the Makefile's `Package/luci-app-captive-portal/postrm` runs `uci delete captive-portal` with no section argument, which does not actually wipe the config (confirmed on real hardware — guest-account data survived a real package removal). Needs a decision: iterate real sections, `rm -f /etc/config/captive-portal`, or explicitly document that config is meant to survive removal.
 
 ---
 
