@@ -19,7 +19,15 @@ const DAEMON_SVC = 'opennds';
 // without updating the others.
 const FAS_PORT = '2080';
 const FAS_PATH = '/splash.html';
-const FAS_SECURE_ENABLED = '1';
+// Level 1 implies openNDS sends a hashed `hid` token that the FAS is expected
+// to verify before trusting client-supplied identifiers. fas_auth does not
+// implement that verification (would require reverse-engineering openNDS's
+// hid hashing scheme against a real device), so this is set to 0 (plain,
+// unverified) rather than falsely advertising a security property that isn't
+// implemented. fas_auth's `mac` argument is therefore trusted as given by the
+// caller with no cryptographic proof of control over that MAC — see
+// CLAUDE.md's Key Design Decision #5 for the accepted-risk writeup.
+const FAS_SECURE_ENABLED = '0';
 
 // Single generic failure message returned by fas_auth for every rejection
 // path (blocked MAC, no matching account, wrong username/password, MAC
@@ -78,6 +86,24 @@ function lower_mac(mac) {
 	return replace(m, /[A-Z]/g, function(c) { return chr(ord(c) + 32); });
 }
 
+// Every mac/ip value below eventually flows into a shell command string via
+// popen(). Reject anything that isn't a well-formed MAC/IPv4 address BEFORE
+// it ever reaches a popen() call, so a crafted value (e.g. containing `;`,
+// `|`, backticks) can never execute a second shell command. This is
+// especially critical for fas_auth, which is reachable unauthenticated.
+function is_valid_mac(mac) {
+	return match(mac || '', /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/) != null;
+}
+
+function is_valid_ipv4(ip) {
+	const m = match(ip || '', /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/);
+	if (m == null) return false;
+	for (let i = 1; i <= 4; i++) {
+		if (int(m[i]) > 255) return false;
+	}
+	return true;
+}
+
 function sync_blocked_json() {
 	const fp = popen('/usr/lib/captive-portal/sync-blocked-json.sh 2>&1');
 	fp.read('all');
@@ -85,6 +111,9 @@ function sync_blocked_json() {
 }
 
 function drop_client(mac) {
+	if (!is_valid_mac(mac)) {
+		return { success: false, error: 'Invalid MAC address' };
+	}
 	if (!service_running()) {
 		return { success: false, error: 'Service not running' };
 	}
@@ -470,6 +499,9 @@ const methods = {
 			if (mac) {
 				return drop_client(mac);
 			}
+			if (!is_valid_ipv4(ip)) {
+				return { success: false, error: 'Invalid IP address' };
+			}
 			const ctl = get_ctl_binary();
 			const fp = popen(ctl + ' deauth ' + ip + ' 2>&1');
 			const output = trim(fp.read('all') || '');
@@ -490,6 +522,9 @@ const methods = {
 			const mac = data.mac || '';
 			if (!mac) {
 				return { success: false, error: 'No MAC provided' };
+			}
+			if (!is_valid_mac(mac)) {
+				return { success: false, error: 'Invalid MAC address' };
 			}
 			const norm_mac = normalize_mac(mac);
 
@@ -548,6 +583,9 @@ const methods = {
 			if (!mac) {
 				return { success: false, error: 'No MAC provided' };
 			}
+			if (!is_valid_mac(mac)) {
+				return { success: false, error: 'Invalid MAC address' };
+			}
 			const norm_mac = normalize_mac(mac);
 
 			// Drop an active session for this MAC, if any.
@@ -583,6 +621,9 @@ const methods = {
 			}
 			if (has_mac && !data.mac) {
 				return { success: false, error: 'No MAC provided' };
+			}
+			if (has_mac && !is_valid_mac(data.mac)) {
+				return { success: false, error: 'Invalid MAC address' };
 			}
 
 			uci.load('captive-portal');
@@ -738,6 +779,16 @@ const methods = {
 
 			if (!mac) {
 				return { success: false, error: 'No MAC provided', redir: redir };
+			}
+
+			// mac is caller-supplied on an UNAUTHENTICATED endpoint and later
+			// flows into a popen()-executed `ndsctl auth` command. Reject
+			// anything that isn't a well-formed MAC before touching UCI or
+			// the daemon, using the same generic failure message as every
+			// other rejection path so a malformed value can't be
+			// distinguished from a wrong password (account enumeration).
+			if (!is_valid_mac(mac)) {
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
 			}
 
 			if (!service_running()) {

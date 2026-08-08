@@ -5,6 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title id="page-title">Connected</title>
 	<link rel="stylesheet" href="splash.css">
+	<script src="security-utils.js"></script>
 </head>
 <body>
 	<div class="container status-container">
@@ -47,22 +48,9 @@
 		(function() {
 			'use strict';
 
-			// redir is attacker-influenced (query string). Reject
-			// javascript:/data: and other non-http(s) schemes before ever
-			// assigning it to an href, so a crafted redir value can't
-			// execute script when the link is clicked.
-			function sanitizeRedirect(url) {
-				try {
-					var parsed = new URL(url, window.location.origin);
-					if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-						return '/';
-					}
-					return parsed.href;
-				} catch (e) {
-					return '/';
-				}
-			}
-
+			// sanitizeRedirect() is defined in security-utils.js (loaded in
+			// <head>) so this logic isn't duplicated/able to drift between
+			// this page and splash.js.
 			var params = new URLSearchParams(window.location.search);
 			var gatewayname = params.get('gatewayname') || '';
 			var clientip = params.get('clientip') || '';

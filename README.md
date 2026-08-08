@@ -12,7 +12,7 @@ LuCI web interface for managing captive portal authentication, built on the **op
 - **Connected Clients** — Live session table with disconnect/block actions
 - **Blacklist** — Manage blocked MAC addresses; add manually or block directly from Connected Clients
 - **Blocked Splash Message** — Splash page hides the login form and shows a blocked message for blacklisted devices
-- **BinAuth Integration** — Authentication hook reading directly from UCI config (no external dependencies)
+- **UCI-native Authentication** — A local FAS (`fas_auth`) validates guest credentials directly against UCI config (no external dependencies); `binauth.sh` handles post-auth logging only
 - **Custom Splash Page** — Mobile-first responsive login page with terms & conditions
 
 ### Recent improvements

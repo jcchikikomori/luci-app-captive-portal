@@ -29,21 +29,9 @@
 	// login session) can call it.
 	var ANONYMOUS_UBUS_SESSION = '00000000000000000000000000000000';
 
-	// redir is attacker-influenced (FAS query string, or echoed back by
-	// fas_auth). Reject javascript:/data: and other non-http(s) schemes
-	// before ever assigning it to window.location, so a crafted redir value
-	// can't execute script in this page's origin.
-	function sanitizeRedirect(url) {
-		try {
-			var parsed = new URL(url, window.location.origin);
-			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-				return '/';
-			}
-			return parsed.href;
-		} catch (e) {
-			return '/';
-		}
-	}
+	// sanitizeRedirect() is defined in security-utils.js (loaded before this
+	// file) so the same logic isn't duplicated/able to drift between this
+	// page and status.html.
 
 	// Submits credentials to the fas_auth ubus method via the same listener
 	// that served this page (task-04's FAS uhttpd instance exposes /ubus

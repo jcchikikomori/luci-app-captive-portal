@@ -33,9 +33,9 @@ luci-app-captive-portal/
 │   ├── luci-static/resources/view/captive-portal/
 │   │   ├── status.js                    # Dashboard: service status + controls
 │   │   ├── accounts.js                  # Guest accounts CRUD table
-│   │   ├── settings.js                  # Daemon config (form.Map)
+│   │   ├── settings.js                  # Service settings (form.Map)
 │   │   └── clients.js                   # Active client sessions
-│   └── captive-portal/                  # Splash page assets (served by daemon)
+│   └── captive-portal/                  # Splash page assets (served by the dedicated FAS uhttpd listener, see Key Design Decision #5)
 │       ├── splash.html
 │       ├── splash.css
 │       ├── splash.js
@@ -242,7 +242,7 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 
 1. Log out and back into LuCI to clear cache
 2. Navigate to **Services > Captive Portal**
-3. Configure daemon and interface in **Settings**
+3. Configure interface in **Settings**
 4. Add guest accounts in **Guest Accounts**
 
 ---
@@ -268,6 +268,8 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 4. **Fresh splash page** — Inspired by nodogsplash-mod but written from scratch (Apache 2.0 clean)
 5. **Local FAS handles authentication, not BinAuth** — openNDS's BinAuth hook cannot gate authentication: per upstream documentation it only runs as a post-authentication notification, and `auth_client`'s username/password arguments are explicitly deprecated and have no effect on whether a client is granted access (see `docs/plans/analysis/opennds-verification-findings.md`). Authentication is instead handled by a minimal **local FAS**: a dedicated `uhttpd` listener instance (`uhttpd.captive_portal_fas`, port 2080) serves the splash assets and the `/ubus` endpoint pre-login; `splash.js` posts credentials to the `fas_auth` ubus method (reachable unauthenticated via the ACL's `unauthenticated` group), which validates the request against the `blocked` and `guest` UCI sections and calls `ndsctl auth <mac> <sessiontimeout>` on success. `binauth.sh` is retained only to log post-auth/deauth events — it has no bearing on the auth decision itself. This design was chosen over openNDS's built-in PHP-based FAS examples or a ThemeSpec script to satisfy the project's zero-new-package constraint: the target device has 8MB of flash and no PHP available (`fas_secure_enabled` level 2+ requires PHP), so reusing the existing uhttpd/ucode/rpcd stack already on the device avoided adding any new package dependency.
 
+   **Accepted risk — no anti-spoofing token verification.** `fas_secure_enabled` is set to `0` (plain, not `1`/hashed) because level 1 implies openNDS sends a hashed `hid` token that the FAS is expected to verify before trusting client-supplied identifiers, and `fas_auth` does not implement that verification (it would require reverse-engineering openNDS's hid hashing scheme against a real device — not done here). Practical effect: `fas_auth` trusts the `mac` value exactly as supplied by the HTTP caller, with no cryptographic proof that the caller actually controls that MAC address — a client with valid guest credentials (which, for a guest WiFi, are meant to be shared) can request network access be granted to an arbitrary MAC of their choosing, not just their own device. Mitigated but not eliminated: `fas_auth` strictly validates that `mac` is a well-formed MAC address (rejecting anything else, including shell metacharacters) before it is ever used, which closes the command-injection risk that a malformed value would otherwise create in the underlying `ndsctl auth` shell call, but format validation alone doesn't prove *ownership* of that MAC. Implementing `hid` verification (or deriving the client's MAC server-side from their source IP via the ARP/neighbor table instead of trusting the request body) is the natural follow-up hardening step before relying on this in a hostile-guest-network environment.
+
    **TODO:** openNDS's `auth_restore` feature (automatic reauthentication of previously-authenticated clients after an `opennds` daemon restart) is driven by the stock `binauth_log.sh` script; replacing it with our own `binauth.sh` forfeits this behavior, and it has not been reimplemented. Revisit if reauth-after-restart becomes a hard requirement.
 
 ---
@@ -287,6 +289,9 @@ ssh root@192.168.1.1 'opkg install /tmp/luci-app-captive-portal*.ipk'
 5. **`auth_restore` forfeited** — openNDS's `auth_restore` reauth-after-daemon-restart feature relies on the stock `binauth_log.sh`; replacing it with our logging-only `binauth.sh` forfeits this behavior, and it has not been reimplemented.
 6. **Per-client rate/quota limits not wired into `ndsctl auth`** — `fas_auth` only passes `sessiontimeout` to `ndsctl auth`; the guest account's `upload_limit`/`download_limit` fields have no confirmed unit mapping onto `ndsctl`'s `uploadrate`/`downloadrate` (kb/s) or `uploadquota`/`downloadquota` (kB) parameters, and that mapping has not been verified against a real device. Per-client bandwidth enforcement currently relies solely on the QoS sync (`sync_qos_config`, via qosify/sqm), which applies the *default* limits globally rather than per guest account.
 7. **7-key config duplication not consolidated** — The same 7 UCI keys (`gatewayname`, `gatewayinterface`, `sessiontimeout`, `binauth`, `fasport`, `faspath`, `fas_secure_enabled`) are set independently in `captive-portal.uc`'s `sync_opennds_config()`, `root/etc/init.d/captive-portal`'s `sync_opennds()`, and `root/etc/uci-defaults/80_captive-portal`. This migration did not consolidate them into a single source of truth; a future refactor should extract a shared helper.
+8. **`fas_auth` has no anti-spoofing token verification** — see Key Design Decision #5's "Accepted risk" note. `fas_auth` validates that `mac` is well-formed (blocking command injection) but not that the caller actually controls that MAC. Follow-up: implement openNDS's `hid` token verification, or derive the client's MAC server-side from their source IP (ARP/neighbor table) instead of trusting the request body.
+9. **`fas_auth` has no rate limiting** — repeated failed login attempts against the unauthenticated `fas_auth` endpoint are not throttled or locked out. Follow-up: add a failed-attempt counter (keyed by IP or MAC) with backoff/lockout.
+10. **`uhttpd.captive_portal_fas` and the rpcd `"unauthenticated"` ACL group convention are unverified against a live device** — the option names (`listen_http`, `home`, `ubus_prefix`) and the `unauthenticated` ACL group's auto-grant behavior were not independently confirmed against a real OpenWrt uhttpd/rpcd instance in this migration; re-verify before relying on this in production.
 
 ---
 
