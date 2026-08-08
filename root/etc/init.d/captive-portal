@@ -1,39 +1,52 @@
 #!/bin/sh /etc/rc.common
-# Captive Portal service wrapper for nodogsplash
-# Syncs settings from /etc/config/captive-portal to nodogsplash on apply.
+# Captive Portal service wrapper for openNDS
+# Syncs settings from /etc/config/captive-portal to openNDS on apply.
 
 START=99
 STOP=10
 USE_PROCD=1
 
-sync_nodogsplash() {
-	local iface gatewayname timeout
+sync_opennds() {
+	local iface gatewayname timeout minutes
 
 	iface=$(uci -q get captive-portal.@service[0].interface)
 	gatewayname=$(uci -q get captive-portal.@service[0].gatewayname)
 	timeout=$(uci -q get captive-portal.@service[0].default_timeout)
+	timeout="${timeout:-1200}"
 
-	uci set nodogsplash.@nodogsplash[0].gatewayname="${gatewayname:-CaptivePortal}"
-	uci set nodogsplash.@nodogsplash[0].gatewayinterface="${iface:-lan}"
-	uci set nodogsplash.@nodogsplash[0].sessiontimeout="${timeout:-1200}"
-	uci set nodogsplash.@nodogsplash[0].binauth='/usr/lib/captive-portal/binauth.sh'
-	uci set nodogsplash.@nodogsplash[0].webroot='/www/captive-portal'
-	uci set nodogsplash.@nodogsplash[0].splashpage='splash.html'
-	uci set nodogsplash.@nodogsplash[0].statuspage='status.html'
-	uci commit nodogsplash
+	# openNDS's sessiontimeout is in minutes; our default_timeout is in
+	# seconds. 0 means "unlimited" and passes through unconverted; any
+	# other value is rounded up to at least 1 minute.
+	if [ "$timeout" -eq 0 ] 2>/dev/null; then
+		minutes=0
+	else
+		minutes=$((timeout / 60))
+		[ "$minutes" -lt 1 ] && minutes=1
+	fi
+
+	uci set opennds.@opennds[0].enabled='1'
+	uci set opennds.@opennds[0].enable_serial_number_suffix='0'
+	uci set opennds.@opennds[0].gatewayname="${gatewayname:-CaptivePortal}"
+	uci set opennds.@opennds[0].gatewayinterface="${iface:-lan}"
+	uci set opennds.@opennds[0].sessiontimeout="$minutes"
+	uci set opennds.@opennds[0].binauth='/usr/lib/captive-portal/binauth.sh'
+	uci set opennds.@opennds[0].fasport='2080'
+	uci set opennds.@opennds[0].faspath='/splash.html'
+	uci set opennds.@opennds[0].fas_secure_enabled='0'
+	uci commit opennds
 }
 
 start_service() {
-	sync_nodogsplash
-	/etc/init.d/nodogsplash restart
-	# Apply global traffic control after nodogsplash starts
+	sync_opennds
+	/etc/init.d/opennds restart
+	# Apply global traffic control after openNDS starts
 	sleep 2
 	/usr/lib/captive-portal/tc-helper.sh apply 2>/dev/null || true
 }
 
 reload_service() {
-	sync_nodogsplash
-	/etc/init.d/nodogsplash restart
+	sync_opennds
+	/etc/init.d/opennds restart
 	# Re-apply traffic control after reload
 	sleep 2
 	/usr/lib/captive-portal/tc-helper.sh apply 2>/dev/null || true

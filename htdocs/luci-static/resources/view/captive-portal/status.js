@@ -20,7 +20,6 @@ return view.extend({
 
 	render: function(data) {
 		var running = data.running || false;
-		var daemon = data.daemon || 'nodogsplash';
 		var uptime = data.uptime || '-';
 		var clientCount = data.client_count || 0;
 		var daemonStatus = data.daemon_status || '';
@@ -28,8 +27,6 @@ return view.extend({
 
 		var statusText = running ? _('Running') : _('Stopped');
 		var statusClass = running ? 'label-success' : 'label-danger';
-
-		var daemonDisplay = daemon === 'opennds' ? 'OpenNDS' : 'Nodogsplash';
 
 		return E('div', { 'class': 'cbi-map' }, [
 			E('style', {}, '.cbi-page-actions { display: none !important; }'),
@@ -46,7 +43,7 @@ return view.extend({
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td left' }, _('Daemon')),
-						E('td', { 'class': 'td left' }, daemonDisplay)
+						E('td', { 'class': 'td left' }, 'OpenNDS')
 					]),
 					E('tr', { 'class': 'tr' }, [
 						E('td', { 'class': 'td left' }, _('Interface')),

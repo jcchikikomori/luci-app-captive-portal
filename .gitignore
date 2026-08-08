@@ -1,4 +1,6 @@
+.claude/
 .opencode/
 .playwright-mcp/
 .tmp/
 dist/
+CLAUDE.local.md

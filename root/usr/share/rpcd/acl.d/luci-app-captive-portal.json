@@ -1,18 +1,40 @@
 {
-	"luci-app-captive-portal": {
-		"description": "Grant access to Captive Portal management",
-		"read": {
-			"ubus": {
-				"luci.captive-portal": [ "*" ]
-			},
-			"uci": [ "captive-portal", "nodogsplash", "opennds" ]
-		},
-		"write": {
-			"uci": [ "captive-portal", "nodogsplash", "opennds" ],
-			"ubus": {
-				"luci.captive-portal": [ "*" ],
-				"service": [ "*" ]
-			}
-		}
-	}
+  "luci-app-captive-portal": {
+    "description": "Grant access to Captive Portal management",
+    "read": {
+      "ubus": {
+        "luci.captive-portal": [
+          "*"
+        ]
+      },
+      "uci": [
+        "captive-portal",
+        "opennds"
+      ]
+    },
+    "write": {
+      "ubus": {
+        "luci.captive-portal": [
+          "*"
+        ],
+        "service": [
+          "*"
+        ]
+      },
+      "uci": [
+        "captive-portal",
+        "opennds"
+      ]
+    }
+  },
+  "unauthenticated": {
+    "description": "Public FAS authentication endpoint for openNDS",
+    "read": {
+      "ubus": {
+        "luci.captive-portal": [
+          "fas_auth"
+        ]
+      }
+    }
+  }
 }

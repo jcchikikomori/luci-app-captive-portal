@@ -7,16 +7,41 @@ import { popen, lsdir } from 'fs';
 
 const uci = cursor();
 
+// openNDS is the sole supported daemon (the OpenWrt captive-portal daemon
+// packages mutually CONFLICT with each other, so there is no runtime toggle
+// to preserve).
+const CTL_BIN = 'ndsctl';
+const DAEMON_SVC = 'opennds';
+
+// Local FAS (Forwarding Authentication Service) listener wiring. These values
+// must match task-04's `uhttpd.captive_portal_fas` listener (`listen_http`
+// port) and task-10's `fas_auth` ubus method exactly — do not change one side
+// without updating the others.
+const FAS_PORT = '2080';
+const FAS_PATH = '/splash.html';
+// Level 1 implies openNDS sends a hashed `hid` token that the FAS is expected
+// to verify before trusting client-supplied identifiers. fas_auth does not
+// implement that verification (would require reverse-engineering openNDS's
+// hid hashing scheme against a real device), so this is set to 0 (plain,
+// unverified) rather than falsely advertising a security property that isn't
+// implemented. fas_auth's `mac` argument is therefore trusted as given by the
+// caller with no cryptographic proof of control over that MAC — see
+// CLAUDE.md's Key Design Decision #5 for the accepted-risk writeup.
+const FAS_SECURE_ENABLED = '0';
+
+// Single generic failure message returned by fas_auth for every rejection
+// path (blocked MAC, no matching account, wrong username/password, MAC
+// mismatch, daemon call failure). fas_auth is reachable unauthenticated, so
+// the response must never let a caller distinguish "unknown username" from
+// "wrong password" from "blocked MAC" (account enumeration).
+const AUTH_FAILURE_MESSAGE = 'Authentication failed';
+
 function get_daemon() {
-	return uci.get_first('captive-portal', 'service', 'daemon') || 'nodogsplash';
+	return DAEMON_SVC;
 }
 
 function get_ctl_binary() {
-	const daemon = get_daemon();
-	if (daemon === 'opennds') {
-		return 'openndsctl';
-	}
-	return 'ndsctl';
+	return CTL_BIN;
 }
 
 function service_running() {
@@ -27,12 +52,30 @@ function service_running() {
 	return length(pid) > 0;
 }
 
-function get_uptime() {
-	const daemon = get_daemon();
-	const fp = popen('ps -o etime= -C ' + daemon + ' 2>/dev/null');
-	const etime = trim(fp.read('all') || '');
-	fp.close();
-	return etime;
+// `ndsctl status`'s own text already reports both an "Uptime: ..." line and a
+// "Current clients: N" line. get_status() used to pay for THREE additional
+// subprocess round-trips (pidof + `ps -o etime -C` + a full `ndsctl json`
+// parse) just to reconstruct these two values separately - on real hardware
+// `ndsctl json` alone measured 4-7s per call (daemon-side, not our fork
+// overhead: `ps -o etime -C` doesn't even work on this busybox build in the
+// first place - `-o`/`-C` aren't supported, so uptime was silently always
+// empty). Parsing both out of the single `ndsctl status` call already needed
+// for daemon_status removes a redundant multi-second daemon round-trip
+// entirely. get_clients (Connected Clients page) still needs the full
+// `ndsctl json` parse for per-client detail and is untouched.
+function parse_status_summary(text) {
+	const t = text || '';
+	// `[^\n]+`, not `.+` - on this project's real router the ucode regex
+	// engine's `.` matches newline (POSIX regcomp default without
+	// REG_NEWLINE), unlike some local ucode builds where it doesn't. A
+	// live-hardware test caught `.+` here greedily swallowing the rest of
+	// the whole status text into `uptime`. See CLAUDE.md TODO/decisions.
+	const uptime_m = match(t, /Uptime: ([^\n]+)/);
+	const clients_m = match(t, /Current clients: ([0-9]+)/);
+	return {
+		uptime: uptime_m ? trim(uptime_m[1]) : '',
+		client_count: clients_m ? int(clients_m[1]) : 0,
+	};
 }
 
 function format_duration(seconds) {
@@ -61,6 +104,47 @@ function lower_mac(mac) {
 	return replace(m, /[A-Z]/g, function(c) { return chr(ord(c) + 32); });
 }
 
+// Every mac/ip value below eventually flows into a shell command string via
+// popen(). Reject anything that isn't a well-formed MAC/IPv4 address BEFORE
+// it ever reaches a popen() call, so a crafted value (e.g. containing `;`,
+// `|`, backticks) can never execute a second shell command. This is
+// especially critical for fas_auth, which is reachable unauthenticated.
+function is_valid_mac(mac) {
+	return match(mac || '', /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/) != null;
+}
+
+function is_valid_ipv4(ip) {
+	const m = match(ip || '', /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/);
+	if (m == null) return false;
+	for (let i = 1; i <= 4; i++) {
+		if (int(m[i]) > 255) return false;
+	}
+	return true;
+}
+
+// The FAS splash page cannot obtain the client's own MAC from openNDS's
+// redirect at all: confirmed on real hardware (via `logread | grep
+// splashpageurl`) that at fas_secure_enabled=0 the query string only ever
+// carries authaction/gatewayname/tok/redir — no clientmac, and clientip
+// is only reachable embedded inside authaction's own value. ucode's rpcd
+// `req` parameter carries no connection-level metadata either (confirmed
+// empty on session/object/method) — there is no way to learn the caller's
+// address from within the ubus call itself. fas_auth instead derives the
+// MAC server-side from the client-reported IP via the router's own ARP/
+// neighbor table. This is also more robust against MAC spoofing than
+// trusting a client-supplied MAC would have been, since the client has no
+// influence over what the router's own neighbor table records for that
+// IP (unlike a MAC string in the request body, which is pure user input).
+function lookup_mac_by_ip(ip) {
+	if (!is_valid_ipv4(ip)) return '';
+	const iface = uci.get_first('captive-portal', 'service', 'interface') || 'lan';
+	const fp = popen('ip neigh show ' + ip + ' dev ' + iface + ' 2>/dev/null');
+	const output = trim(fp.read('all') || '');
+	fp.close();
+	const m = match(output, /lladdr ([0-9A-Fa-f:]+)/);
+	return m ? m[1] : '';
+}
+
 function sync_blocked_json() {
 	const fp = popen('/usr/lib/captive-portal/sync-blocked-json.sh 2>&1');
 	fp.read('all');
@@ -68,6 +152,9 @@ function sync_blocked_json() {
 }
 
 function drop_client(mac) {
+	if (!is_valid_mac(mac)) {
+		return { success: false, error: 'Invalid MAC address' };
+	}
 	if (!service_running()) {
 		return { success: false, error: 'Service not running' };
 	}
@@ -90,9 +177,48 @@ function drop_client(mac) {
 	return { success: false, error: output };
 }
 
-function parse_clients_json() {
+// openNDS's `ndsctl json` does not track a "username" per client at all
+// (it only knows mac/ip/state/session times/token — usernames are our own
+// app-level concept, not the daemon's). Best-effort: cross-reference the
+// client's MAC against any guest account that has that MAC explicitly
+// bound. Accounts using password-only auth (no bound MAC) can't be
+// resolved this way, since the daemon has no record of which shared
+// account a given MAC authenticated with — returns '' for those (shown as
+// "-" in the Connected Clients table), same as before this fix.
+function find_username_by_mac(norm_mac) {
+	let username = '';
+	uci.foreach('captive-portal', 'guest', function(s) {
+		if (s.enabled !== '1') return true;
+		const stored_mac = s.mac || '';
+		if (stored_mac != '' && normalize_mac(stored_mac) === norm_mac) {
+			username = s.username || '';
+			return false;
+		}
+		return true;
+	});
+	return username;
+}
+
+// `ndsctl json` is a clean, byte-precise source (real session_start unix
+// timestamp, exact byte counts) but on real hardware measured 2x slower than
+// `ndsctl status` for the same daemon, same client count (5-8s vs 2-3s,
+// reproduced head-to-head, repeatedly - a daemon-side cost, not our fork
+// overhead). User-approved tradeoff: parse the already-fetched `ndsctl
+// status` text instead, accepting two precision losses vs the old json path:
+//   - "uptime" becomes "time since last activity" (status has no machine-
+//     parseable session-start timestamp when Preauthenticated - just "-" or
+//     a human date string, and ucode has no date-parsing builtin to recover
+//     an epoch from that) rather than true session duration.
+//   - downloaded/uploaded are read from status's whole-kB fields (x1024) and
+//     lose the byte-level precision `download_this_session`/
+//     `upload_this_session` had in the json output.
+// Parsed line-by-line (no multi-line regex): the real router's ucode regex
+// engine matches newline with a bare `.` (POSIX regcomp default, no
+// REG_NEWLINE - see parse_status_summary()'s comment), which makes any
+// greedy multi-line pattern unsafe here.
+function parse_clients_from_status() {
 	const ctl = get_ctl_binary();
-	const fp = popen(ctl + ' json 2>/dev/null');
+	const fp = popen(ctl + ' status 2>&1');
 	const output = fp.read('all') || '';
 	fp.close();
 
@@ -100,40 +226,58 @@ function parse_clients_json() {
 		return { clients: [], error: 'Unable to read client list' };
 	}
 
-	let data = null;
-	try {
-		data = json(output);
-	} catch (e) {
-		return { clients: [], error: 'Failed to parse client data' };
-	}
-
+	const lines = split(output, '\n');
 	const clients = [];
-	const client_map = data.clients || {};
+	let current = null;
 
-	for (let key in client_map) {
-		const c = client_map[key];
-		if (c == null) continue;
+	for (let i = 0; i < length(lines); i++) {
+		const line = lines[i];
 
-		push(clients, {
-			mac: c.mac || key,
-			ip: c.ip || '',
-			username: c.username || '',
-			uptime: format_duration(c.duration || 0),
-			downloaded: c.downloaded || 0,
-			uploaded: c.uploaded || 0,
-		});
+		if (match(line, /^Client [0-9]+/)) {
+			if (current) push(clients, current);
+			current = { mac: '', ip: '', uptime: '-', downloaded: 0, uploaded: 0 };
+			continue;
+		}
+
+		if (!current) continue;
+
+		const ip_mac_m = match(line, /IP: ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) MAC: ([0-9A-Fa-f:]+)/);
+		if (ip_mac_m) {
+			current.ip = ip_mac_m[1];
+			current.mac = normalize_mac(ip_mac_m[2]);
+			continue;
+		}
+
+		const activity_m = match(line, /Last Activity: .*\(([^)]+) ago\)/);
+		if (activity_m) {
+			current.uptime = trim(activity_m[1]);
+			continue;
+		}
+
+		const down_m = match(line, /Download this session: ([0-9]+) kB/);
+		if (down_m) {
+			current.downloaded = int(down_m[1]) * 1024;
+			continue;
+		}
+
+		const up_m = match(line, /Upload this session: ([0-9]+) kB/);
+		if (up_m) {
+			current.uploaded = int(up_m[1]) * 1024;
+		}
 	}
+	if (current) push(clients, current);
+
+	uci.load('captive-portal');
+	for (let i = 0; i < length(clients); i++) {
+		clients[i].username = find_username_by_mac(clients[i].mac);
+	}
+	uci.unload('captive-portal');
 
 	return { clients: clients };
 }
 
 function parse_clients_output() {
-	const daemon = get_daemon();
-	if (daemon === 'nodogsplash') {
-		return parse_clients_json();
-	}
-
-	return { clients: [], error: 'Client parsing not implemented for ' + daemon };
+	return parse_clients_from_status();
 }
 
 function get_daemon_status_text() {
@@ -144,14 +288,23 @@ function get_daemon_status_text() {
 	return output;
 }
 
-function get_client_count() {
-	const result = parse_clients_output();
-	return length(result.clients || []);
+// openNDS's `sessiontimeout` is in minutes; our UCI schema's `default_timeout`
+// is in seconds. A source value of 0 means "unlimited" in both systems and is
+// passed through unconverted; any other value is rounded up to at least 1
+// minute so a small nonzero second count never collapses to 0 (which would
+// mean "unlimited" instead of "very short").
+function timeout_seconds_to_minutes(default_timeout) {
+	const seconds = int(default_timeout) || 0;
+	if (seconds == 0) {
+		return '0';
+	}
+	const minutes = int(seconds / 60);
+	return '' + (minutes > 0 ? minutes : 1);
 }
 
-function sync_nodogsplash_config() {
+function sync_opennds_config() {
 	uci.load('captive-portal');
-	uci.load('nodogsplash');
+	uci.load('opennds');
 
 	const service = {
 		interface: uci.get_first('captive-portal', 'service', 'interface') || 'lan',
@@ -160,38 +313,38 @@ function sync_nodogsplash_config() {
 	};
 
 	let section_name = '';
-	uci.foreach('nodogsplash', 'nodogsplash', function(s) {
+	uci.foreach('opennds', 'opennds', function(s) {
 		section_name = s['.name'];
 		return false;
 	});
 
 	if (section_name == '') {
 		uci.unload('captive-portal');
-		uci.unload('nodogsplash');
-		return { success: false, error: 'No nodogsplash section found' };
+		uci.unload('opennds');
+		return { success: false, error: 'No opennds section found' };
 	}
 
-	uci.set('nodogsplash', section_name, 'gatewayname', service.gatewayname);
-	uci.set('nodogsplash', section_name, 'gatewayinterface', service.interface);
-	uci.set('nodogsplash', section_name, 'sessiontimeout', service.default_timeout);
-	uci.set('nodogsplash', section_name, 'binauth', '/usr/lib/captive-portal/binauth.sh');
-	uci.set('nodogsplash', section_name, 'webroot', '/www/captive-portal');
-	uci.set('nodogsplash', section_name, 'splashpage', 'splash.html');
-	uci.set('nodogsplash', section_name, 'statuspage', 'status.html');
+	uci.set('opennds', section_name, 'enabled', '1');
+	// openNDS defaults enable_serial_number_suffix to 1 (enabled) and
+	// appends "Node:<router-mac-based-serial>" to gatewayname unless told
+	// otherwise — confirmed on real hardware ("Corsanes Guest WiFi
+	// Node:ae15a2c96cc7"). We want the configured name shown as-is.
+	uci.set('opennds', section_name, 'enable_serial_number_suffix', '0');
+	uci.set('opennds', section_name, 'gatewayname', service.gatewayname);
+	uci.set('opennds', section_name, 'gatewayinterface', service.interface);
+	uci.set('opennds', section_name, 'sessiontimeout', timeout_seconds_to_minutes(service.default_timeout));
+	// binauth.sh is now logging-only (task-07); authentication itself is
+	// gated by the fas_auth ubus method (task-10), not this script.
+	uci.set('opennds', section_name, 'binauth', '/usr/lib/captive-portal/binauth.sh');
+	uci.set('opennds', section_name, 'fasport', FAS_PORT);
+	uci.set('opennds', section_name, 'faspath', FAS_PATH);
+	uci.set('opennds', section_name, 'fas_secure_enabled', FAS_SECURE_ENABLED);
 
-	uci.commit('nodogsplash');
+	uci.commit('opennds');
 	uci.unload('captive-portal');
-	uci.unload('nodogsplash');
+	uci.unload('opennds');
 
 	return { success: true };
-}
-
-function sync_daemon() {
-	const daemon = get_daemon();
-	if (daemon === 'nodogsplash') {
-		return sync_nodogsplash_config();
-	}
-	return { success: false, error: 'Sync not implemented for ' + daemon };
 }
 
 function bytes_to_mbit(bytes) {
@@ -318,18 +471,84 @@ function sync_qos_config() {
 	return { success: true, qos: 'none' };
 }
 
+// -- fas_auth support --------------------------------------------------
+//
+// openNDS's BinAuth hook cannot gate authentication (it only runs after the
+// daemon has already decided) — the local FAS flow calls the fas_auth ubus
+// method directly, and it is now the sole place guest credentials/blocked
+// MACs are validated. The precedence rules below are ported from this
+// package's original binauth.sh `auth_client` case (see git history), which
+// performed the same checks synchronously inside nodogsplash's BinAuth call.
+
+function is_mac_blocked(norm_mac) {
+	let blocked = false;
+	uci.foreach('captive-portal', 'blocked', function(s) {
+		if (s.enabled !== '1') return true;
+		if (normalize_mac(s.mac || '') === norm_mac) {
+			blocked = true;
+			return false;
+		}
+		return true;
+	});
+	return blocked;
+}
+
+function get_default_auth_method() {
+	return uci.get_first('captive-portal', 'service', 'auth_method') || 'both';
+}
+
+// Returns the matching guest account's session limits, or null if no
+// enabled `guest` section matches per its own (or the service-wide default)
+// `auth_method`: `password` matches on username+password only, `mac`
+// matches on MAC only, `both` requires username+password plus either no MAC
+// bound to the account or a MAC that matches the requesting client.
+function find_matching_guest(username, password, norm_mac, default_auth_method) {
+	let matched = null;
+
+	uci.foreach('captive-portal', 'guest', function(s) {
+		if (s.enabled !== '1') return true;
+
+		const stored_user = s.username || '';
+		const stored_pass = s.password || '';
+		const stored_mac = s.mac || '';
+		const stored_mac_norm = normalize_mac(stored_mac);
+		const auth_method = s.auth_method || default_auth_method;
+
+		const cred_match = (username === stored_user) && (password === stored_pass);
+		const mac_match = (stored_mac != '') && (norm_mac === stored_mac_norm);
+
+		let account_match = false;
+		if (auth_method == 'password') {
+			account_match = cred_match;
+		} else if (auth_method == 'mac') {
+			account_match = mac_match;
+		} else if (auth_method == 'both') {
+			account_match = cred_match && (stored_mac == '' || mac_match);
+		}
+
+		if (account_match) {
+			matched = { timeout: s.timeout || '1200' };
+			return false;
+		}
+		return true;
+	});
+
+	return matched;
+}
+
 const methods = {
 	get_status: {
 		call: function() {
 			const daemon = get_daemon();
 			const running = service_running();
-			const uptime = running ? get_uptime() : '';
-			const client_count = running ? get_client_count() : 0;
 			const daemon_status = running ? get_daemon_status_text() : '';
+			const summary = running ? parse_status_summary(daemon_status) : { uptime: '', client_count: 0 };
+			const uptime = summary.uptime;
+			const client_count = summary.client_count;
 
 			uci.load('captive-portal');
 			const config = {
-				daemon: uci.get_first('captive-portal', 'service', 'daemon') || 'nodogsplash',
+				daemon: uci.get_first('captive-portal', 'service', 'daemon') || 'opennds',
 				interface: uci.get_first('captive-portal', 'service', 'interface') || 'lan',
 				gatewayname: uci.get_first('captive-portal', 'service', 'gatewayname') || 'CaptivePortal',
 			};
@@ -385,6 +604,9 @@ const methods = {
 			if (mac) {
 				return drop_client(mac);
 			}
+			if (!is_valid_ipv4(ip)) {
+				return { success: false, error: 'Invalid IP address' };
+			}
 			const ctl = get_ctl_binary();
 			const fp = popen(ctl + ' deauth ' + ip + ' 2>&1');
 			const output = trim(fp.read('all') || '');
@@ -405,6 +627,9 @@ const methods = {
 			const mac = data.mac || '';
 			if (!mac) {
 				return { success: false, error: 'No MAC provided' };
+			}
+			if (!is_valid_mac(mac)) {
+				return { success: false, error: 'Invalid MAC address' };
 			}
 			const norm_mac = normalize_mac(mac);
 
@@ -463,6 +688,9 @@ const methods = {
 			if (!mac) {
 				return { success: false, error: 'No MAC provided' };
 			}
+			if (!is_valid_mac(mac)) {
+				return { success: false, error: 'Invalid MAC address' };
+			}
 			const norm_mac = normalize_mac(mac);
 
 			// Drop an active session for this MAC, if any.
@@ -498,6 +726,9 @@ const methods = {
 			}
 			if (has_mac && !data.mac) {
 				return { success: false, error: 'No MAC provided' };
+			}
+			if (has_mac && !is_valid_mac(data.mac)) {
+				return { success: false, error: 'Invalid MAC address' };
 			}
 
 			uci.load('captive-portal');
@@ -636,21 +867,101 @@ const methods = {
 		}
 	},
 
+	// Unauthenticated entry point called by the local FAS splash page
+	// (task-08's splash.js) after the guest submits credentials. This is
+	// the actual authentication decision point — the role binauth.sh's
+	// `auth_client` case used to play under nodogsplash.
+	fas_auth: {
+		args: {
+			data: {}
+		},
+		call: function(req) {
+			const data = (req.args && req.args.data) || {};
+			const username = data.username || '';
+			const password = data.password || '';
+			const client_ip = data.ip || '';
+			const redir = data.redir || '';
+
+			if (!client_ip || !is_valid_ipv4(client_ip)) {
+				return { success: false, error: 'No IP provided', redir: redir };
+			}
+
+			if (!service_running()) {
+				return { success: false, error: 'Service not running', redir: redir };
+			}
+
+			uci.load('captive-portal');
+
+			// The client cannot report its own MAC (openNDS never sends
+			// clientmac to the FAS at fas_secure_enabled=0 — see splash.js)
+			// so it is derived here from the ARP/neighbor table entry for
+			// its reported IP. This is also the reason a client-supplied MAC
+			// is never trusted: this lookup uses only what the router's own
+			// network stack already knows.
+			const mac = lookup_mac_by_ip(client_ip);
+			if (!mac || !is_valid_mac(mac)) {
+				uci.unload('captive-portal');
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			const norm_mac = normalize_mac(mac);
+
+			if (is_mac_blocked(norm_mac)) {
+				uci.unload('captive-portal');
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			const default_auth_method = get_default_auth_method();
+			const account = find_matching_guest(username, password, norm_mac, default_auth_method);
+
+			uci.unload('captive-portal');
+
+			if (!account) {
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			// Confirmed upstream syntax (ndsctl.c usage text): `ndsctl auth
+			// mac|ip|token sessiontimeout(minutes) uploadrate(kb/s)
+			// downloadrate(kb/s) uploadquota(kB) downloadquota(kB)
+			// customstring`. Only sessiontimeout is passed here, reusing the
+			// same seconds->minutes conversion already used for the global
+			// default_timeout in sync_opennds_config(). uploadrate/
+			// downloadrate/uploadquota/downloadquota are intentionally left
+			// unset (the daemon falls back to its own global settings):
+			// our per-account upload_limit/download_limit fields have no
+			// confirmed unit mapping onto ndsctl's kb/s rate model, and that
+			// mapping can't be verified without a real device. Do not guess
+			// at it — follow up separately before relying on per-client
+			// rate/quota enforcement via `ndsctl auth`.
+			const ctl = get_ctl_binary();
+			const target = lower_mac(mac);
+			const sessiontimeout = timeout_seconds_to_minutes(account.timeout);
+			const fp = popen(ctl + ' auth ' + target + ' ' + sessiontimeout + ' 2>&1');
+			fp.read('all');
+			const rc = fp.close();
+
+			if (rc != 0) {
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			return { success: true, redir: redir };
+		}
+	},
+
 	sync_daemon_config: {
 		call: function() {
-			return sync_daemon();
+			return sync_opennds_config();
 		}
 	},
 
 	restart_service: {
 		call: function() {
-			const sync = sync_daemon();
+			const sync = sync_opennds_config();
 			if (!sync.success) {
 				return sync;
 			}
 
-			const daemon = get_daemon();
-			const fp = popen('/etc/init.d/' + daemon + ' restart 2>&1');
+			const fp = popen('/etc/init.d/' + DAEMON_SVC + ' restart 2>&1');
 			const output = trim(fp.read('all') || '');
 			fp.close();
 
