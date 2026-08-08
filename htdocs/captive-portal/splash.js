@@ -4,17 +4,32 @@
 	// openNDS has no `$var` template-substitution mechanism for a static FAS
 	// splash page (unlike nodogsplash) — it instead redirects the client's
 	// browser to this page with client/session info appended as a query
-	// string (fas_secure_enabled=1: plain, not encrypted). See
-	// docs/plans/analysis/opennds-verification-findings.md, section 5.
+	// string. IMPORTANT: at fas_secure_enabled=0 (this app's setting — see
+	// captive-portal.uc), openNDS's actual redirect only carries
+	// `authaction`, `gatewayname`, `tok`, and `redir` as top-level params —
+	// confirmed on real hardware via `logread | grep splashpageurl`. There is
+	// NO `clientmac` param at this level, and `clientip` isn't a clean
+	// top-level param either — it's embedded (unescaped) inside
+	// `authaction`'s own value, e.g.
+	// authaction=http://<gw>:2050/opennds_auth/?clientip=192.168.3.100
+	// The client's MAC is therefore never available client-side at all;
+	// fas_auth derives it server-side from this IP via the router's own
+	// ARP/neighbor table (see captive-portal.uc's lookup_mac_by_ip()) —
+	// this also closes the MAC-spoofing gap a client-supplied MAC would
+	// otherwise have had.
+	function extractClientIp(authaction) {
+		if (!authaction) return '';
+		var m = authaction.match(/[?&]clientip=([^&]+)/);
+		return m ? decodeURIComponent(m[1]) : '';
+	}
+
 	var fasParams = (function parseFasParams() {
 		var params = new URLSearchParams(window.location.search);
+		var authaction = params.get('authaction') || '';
 		return {
-			clientip: params.get('clientip') || '',
-			clientmac: params.get('clientmac') || '',
+			authaction: authaction,
+			clientip: extractClientIp(authaction),
 			gatewayname: params.get('gatewayname') || '',
-			gatewayaddress: params.get('gatewayaddress') || '',
-			clientif: params.get('clientif') || '',
-			authdir: params.get('authdir') || '',
 			redir: params.get('redir') || '',
 			// fas_secure_enabled level 1 sends a plain 'tok'; higher levels
 			// (not used by this app) send a hashed 'hid' instead. fas_auth
@@ -52,7 +67,7 @@
 					data: {
 						username: credentials.username,
 						password: credentials.password,
-						mac: fasParams.clientmac,
+						ip: fasParams.clientip,
 						redir: fasParams.redir
 					}
 				}
@@ -137,8 +152,10 @@
 		};
 	}
 
-	// Populate device info, including the client MAC address sourced from
-	// the FAS query string (previously daemon-substituted via $clientmac).
+	// Populate device info. The client's MAC address is not available
+	// client-side at all under fas_secure_enabled=0 (openNDS never sends
+	// it — see the fasParams comment above), so this shows the client IP
+	// instead, which openNDS does provide (embedded in `authaction`).
 	function populateDeviceInfo() {
 		var info = detectDevice();
 		var infoSection = document.getElementById('device-info');
@@ -147,8 +164,8 @@
 			document.getElementById('manufacturer').textContent = info.manufacturer;
 			document.getElementById('device').textContent = info.device;
 			document.getElementById('browser').textContent = info.browser;
-			var macDisplay = document.getElementById('mac-display');
-			if (macDisplay) macDisplay.textContent = fasParams.clientmac || 'Unknown';
+			var ipDisplay = document.getElementById('ip-display');
+			if (ipDisplay) ipDisplay.textContent = fasParams.clientip || 'Unknown';
 			infoSection.style.display = 'block';
 		}
 	}
@@ -156,10 +173,10 @@
 	// Populate the gateway name (previously daemon-substituted via
 	// $gatewayname) from the FAS query string.
 	function populateGatewayInfo() {
-		var name = fasParams.gatewayname || 'Captive Portal';
+		var name = fasParams.gatewayname || 'the Guest WiFi';
 		document.title = 'Welcome to ' + name;
 		var heading = document.getElementById('gateway-name');
-		if (heading) heading.textContent = name;
+		if (heading) heading.textContent = document.title;
 	}
 
 	// Terms modal
@@ -260,52 +277,32 @@
 		});
 	}
 
-	// Show blocked message for blacklisted devices, otherwise reveal the login form
-	function checkBlocked() {
-		var mac = fasParams.clientmac;
+	// Client-side blocked-device pre-check is no longer possible: it used
+	// to compare fasParams.clientmac (an openNDS-supplied MAC) against
+	// blocked.json, but the client's MAC is never available client-side
+	// (see the fasParams comment above — openNDS doesn't send clientmac,
+	// only clientip, and blocked.json is keyed by MAC, not IP, since that's
+	// what the `blocked` UCI sections store). This was always documented
+	// as a UX-only nicety, not a security control — real enforcement is
+	// server-side in fas_auth's is_mac_blocked() check (against the MAC it
+	// derives from clientip via ARP), which still runs on every submit
+	// regardless. A blocked guest now just sees the normal login form and
+	// gets the standard generic failure message on submit, instead of a
+	// distinct "you are blocked" message pre-emptively.
+	function showLoginForm() {
 		var blockedMessage = document.getElementById('blocked-message');
 		var loginContent = document.getElementById('login-content');
 		var loginFooter = document.getElementById('login-footer');
 
-		function showLogin() {
-			if (blockedMessage) blockedMessage.style.display = 'none';
-			if (loginContent) loginContent.style.display = 'block';
-			if (loginFooter) loginFooter.style.display = 'block';
-		}
-
-		function showBlocked() {
-			if (blockedMessage) blockedMessage.style.display = 'block';
-			if (loginContent) loginContent.style.display = 'none';
-			if (loginFooter) loginFooter.style.display = 'none';
-		}
-
-		if (!mac) {
-			showLogin();
-			return;
-		}
-
-		fetch('blocked.json?_=' + Date.now())
-			.then(function(response) { return response.json(); })
-			.then(function(data) {
-				var list = data.blocked || [];
-				var upperMac = mac.toUpperCase();
-				for (var i = 0; i < list.length; i++) {
-					if (list[i].toUpperCase() === upperMac) {
-						showBlocked();
-						return;
-					}
-				}
-				showLogin();
-			})
-			.catch(function() {
-				showLogin();
-			});
+		if (blockedMessage) blockedMessage.style.display = 'none';
+		if (loginContent) loginContent.style.display = 'block';
+		if (loginFooter) loginFooter.style.display = 'block';
 	}
 
 	// Initialize
 	document.addEventListener('DOMContentLoaded', function() {
 		populateGatewayInfo();
-		checkBlocked();
+		showLoginForm();
 		populateDeviceInfo();
 		setupTermsModal();
 		setupForm();

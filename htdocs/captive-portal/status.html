@@ -24,10 +24,6 @@
 						<span class="label">IP Address</span>
 						<span class="value" id="status-clientip">Unknown</span>
 					</div>
-					<div class="status-row">
-						<span class="label">MAC Address</span>
-						<span class="value" id="status-clientmac">Unknown</span>
-					</div>
 				</div>
 
 				<a href="#" id="status-continue" class="btn btn-primary">Continue to Internet</a>
@@ -51,10 +47,14 @@
 			// sanitizeRedirect() is defined in security-utils.js (loaded in
 			// <head>) so this logic isn't duplicated/able to drift between
 			// this page and splash.js.
+			// clientmac removed: confirmed on real hardware (see splash.js)
+			// that openNDS never sends a clientmac query param at
+			// fas_secure_enabled=0. Not fixed here the way splash.js was
+			// (ARP-derived via fas_auth), since this page has no server-side
+			// call to piggyback that lookup on.
 			var params = new URLSearchParams(window.location.search);
 			var gatewayname = params.get('gatewayname') || '';
 			var clientip = params.get('clientip') || '';
-			var clientmac = params.get('clientmac') || '';
 			var redir = sanitizeRedirect(params.get('redir') || '/');
 
 			if (gatewayname) {
@@ -62,7 +62,6 @@
 				document.getElementById('gateway-subtitle').textContent = 'Welcome to ' + gatewayname;
 			}
 			if (clientip) document.getElementById('status-clientip').textContent = clientip;
-			if (clientmac) document.getElementById('status-clientmac').textContent = clientmac;
 
 			document.getElementById('status-continue').setAttribute('href', redir);
 		})();

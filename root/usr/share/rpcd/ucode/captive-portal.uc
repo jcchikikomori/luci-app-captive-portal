@@ -104,6 +104,29 @@ function is_valid_ipv4(ip) {
 	return true;
 }
 
+// The FAS splash page cannot obtain the client's own MAC from openNDS's
+// redirect at all: confirmed on real hardware (via `logread | grep
+// splashpageurl`) that at fas_secure_enabled=0 the query string only ever
+// carries authaction/gatewayname/tok/redir — no clientmac, and clientip
+// is only reachable embedded inside authaction's own value. ucode's rpcd
+// `req` parameter carries no connection-level metadata either (confirmed
+// empty on session/object/method) — there is no way to learn the caller's
+// address from within the ubus call itself. fas_auth instead derives the
+// MAC server-side from the client-reported IP via the router's own ARP/
+// neighbor table. This is also more robust against MAC spoofing than
+// trusting a client-supplied MAC would have been, since the client has no
+// influence over what the router's own neighbor table records for that
+// IP (unlike a MAC string in the request body, which is pure user input).
+function lookup_mac_by_ip(ip) {
+	if (!is_valid_ipv4(ip)) return '';
+	const iface = uci.get_first('captive-portal', 'service', 'interface') || 'lan';
+	const fp = popen('ip neigh show ' + ip + ' dev ' + iface + ' 2>/dev/null');
+	const output = trim(fp.read('all') || '');
+	fp.close();
+	const m = match(output, /lladdr ([0-9A-Fa-f:]+)/);
+	return m ? m[1] : '';
+}
+
 function sync_blocked_json() {
 	const fp = popen('/usr/lib/captive-portal/sync-blocked-json.sh 2>&1');
 	fp.read('all');
@@ -775,30 +798,32 @@ const methods = {
 			const data = (req.args && req.args.data) || {};
 			const username = data.username || '';
 			const password = data.password || '';
-			const mac = data.mac || '';
+			const client_ip = data.ip || '';
 			const redir = data.redir || '';
 
-			if (!mac) {
-				return { success: false, error: 'No MAC provided', redir: redir };
-			}
-
-			// mac is caller-supplied on an UNAUTHENTICATED endpoint and later
-			// flows into a popen()-executed `ndsctl auth` command. Reject
-			// anything that isn't a well-formed MAC before touching UCI or
-			// the daemon, using the same generic failure message as every
-			// other rejection path so a malformed value can't be
-			// distinguished from a wrong password (account enumeration).
-			if (!is_valid_mac(mac)) {
-				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			if (!client_ip || !is_valid_ipv4(client_ip)) {
+				return { success: false, error: 'No IP provided', redir: redir };
 			}
 
 			if (!service_running()) {
 				return { success: false, error: 'Service not running', redir: redir };
 			}
 
-			const norm_mac = normalize_mac(mac);
-
 			uci.load('captive-portal');
+
+			// The client cannot report its own MAC (openNDS never sends
+			// clientmac to the FAS at fas_secure_enabled=0 — see splash.js)
+			// so it is derived here from the ARP/neighbor table entry for
+			// its reported IP. This is also the reason a client-supplied MAC
+			// is never trusted: this lookup uses only what the router's own
+			// network stack already knows.
+			const mac = lookup_mac_by_ip(client_ip);
+			if (!mac || !is_valid_mac(mac)) {
+				uci.unload('captive-portal');
+				return { success: false, error: AUTH_FAILURE_MESSAGE, redir: redir };
+			}
+
+			const norm_mac = normalize_mac(mac);
 
 			if (is_mac_blocked(norm_mac)) {
 				uci.unload('captive-portal');
