@@ -226,6 +226,7 @@ function sync_opennds_config() {
 		return { success: false, error: 'No opennds section found' };
 	}
 
+	uci.set('opennds', section_name, 'enabled', '1');
 	uci.set('opennds', section_name, 'gatewayname', service.gatewayname);
 	uci.set('opennds', section_name, 'gatewayinterface', service.interface);
 	uci.set('opennds', section_name, 'sessiontimeout', timeout_seconds_to_minutes(service.default_timeout));

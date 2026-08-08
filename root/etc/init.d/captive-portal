@@ -24,6 +24,7 @@ sync_opennds() {
 		[ "$minutes" -lt 1 ] && minutes=1
 	fi
 
+	uci set opennds.@opennds[0].enabled='1'
 	uci set opennds.@opennds[0].gatewayname="${gatewayname:-CaptivePortal}"
 	uci set opennds.@opennds[0].gatewayinterface="${iface:-lan}"
 	uci set opennds.@opennds[0].sessiontimeout="$minutes"

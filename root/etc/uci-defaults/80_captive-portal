@@ -58,6 +58,7 @@ else
 fi
 
 uci -q batch <<EOF
+set opennds.@opennds[0].enabled='1'
 set opennds.@opennds[0].gatewayname='${gatewayname:-CaptivePortal}'
 set opennds.@opennds[0].gatewayinterface='${iface:-lan}'
 set opennds.@opennds[0].sessiontimeout='${minutes}'
@@ -73,8 +74,13 @@ EOF
 # and the static splash assets pre-login on the same port as opennds's
 # fasport above.
 if ! uci -q get uhttpd.captive_portal_fas >/dev/null 2>&1; then
+	# `uci add <config> <type>` creates an ANONYMOUS section (returning an
+	# auto-generated name) — it does not create a section named
+	# "captive_portal_fas". A NAMED section (so later code/upgrades can
+	# keep addressing it by this fixed name) requires `set
+	# uhttpd.<name>=<type>` instead.
 	uci -q batch <<'EOF'
-add uhttpd captive_portal_fas
+set uhttpd.captive_portal_fas=uhttpd
 set uhttpd.captive_portal_fas.listen_http='0.0.0.0:2080'
 set uhttpd.captive_portal_fas.home='/www/captive-portal'
 set uhttpd.captive_portal_fas.ubus_prefix='/ubus'
