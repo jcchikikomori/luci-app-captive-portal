@@ -31,7 +31,7 @@ sync_opennds() {
 	uci set opennds.@opennds[0].binauth='/usr/lib/captive-portal/binauth.sh'
 	uci set opennds.@opennds[0].fasport='2080'
 	uci set opennds.@opennds[0].faspath='/splash.html'
-	uci set opennds.@opennds[0].fas_secure_enabled='1'
+	uci set opennds.@opennds[0].fas_secure_enabled='0'
 	uci commit opennds
 }
 

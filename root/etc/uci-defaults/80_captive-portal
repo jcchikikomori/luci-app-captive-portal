@@ -57,6 +57,10 @@ else
 	[ "$minutes" -lt 1 ] && minutes=1
 fi
 
+# fas_secure_enabled=0 (plain, unverified token) is intentional, not a
+# placeholder — fas_auth does not implement openNDS's hid-token
+# verification (see CLAUDE.md Key Design Decision #5's "Accepted risk"
+# note). Keep this in sync with FAS_SECURE_ENABLED in captive-portal.uc.
 uci -q batch <<EOF
 set opennds.@opennds[0].enabled='1'
 set opennds.@opennds[0].gatewayname='${gatewayname:-CaptivePortal}'
@@ -65,9 +69,22 @@ set opennds.@opennds[0].sessiontimeout='${minutes}'
 set opennds.@opennds[0].binauth='/usr/lib/captive-portal/binauth.sh'
 set opennds.@opennds[0].fasport='2080'
 set opennds.@opennds[0].faspath='/splash.html'
-set opennds.@opennds[0].fas_secure_enabled='1'
+set opennds.@opennds[0].fas_secure_enabled='0'
 commit opennds
 EOF
+
+# openNDS's own pre-auth walled garden (its legacy `ip nds_filter` table,
+# managed entirely outside UCI's `firewall` config) only lets guest
+# clients reach a hardcoded port list on the router itself (its own
+# built-in webserver port, DNS, DHCP, SSH, HTTPS) — NOT our custom FAS
+# port, since a locally-hosted FAS isn't openNDS's normal deployment
+# model (a real FAS is usually a separate remote server, which never
+# needs a router-local firewall exception at all). `users_to_router`
+# is openNDS's own supported mechanism for adding to that allowlist.
+if ! uci -q get 'opennds.@opennds[0].users_to_router' | grep -q 'port 2080'; then
+	uci -q add_list 'opennds.@opennds[0].users_to_router=allow tcp port 2080'
+	uci -q commit opennds
+fi
 
 # Create the local FAS (Forwarding Authentication Service) listener on
 # uhttpd if it does not exist yet. This serves the fas_auth ubus method
